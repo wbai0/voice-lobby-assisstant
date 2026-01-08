@@ -1,0 +1,536 @@
+use crate::state::AppState;
+use anyhow::Result;
+use serde::Serialize;
+use std::process::Command;
+use std::sync::Mutex;
+use tauri::State;
+
+// Global ADB path that can be overridden by user
+static CUSTOM_ADB_PATH: Mutex<Option<String>> = Mutex::new(None);
+
+#[derive(Serialize, Clone)]
+pub struct MumuInstance {
+    pub index: i32,
+    pub name: String,
+    pub port: u16,
+    pub running: bool,
+    pub display_name: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct AdbInfo {
+    pub path: String,
+    pub found: bool,
+    pub is_custom: bool,
+}
+
+/// Get ADB path - auto detect from MuMu installation or common locations
+fn get_adb_path() -> String {
+    // Check if user has set a custom path
+    if let Ok(guard) = CUSTOM_ADB_PATH.lock() {
+        if let Some(ref path) = *guard {
+            return path.clone();
+        }
+    }
+    
+    detect_adb_path()
+}
+
+/// Public version for debugging
+pub fn get_adb_path_public() -> String {
+    get_adb_path()
+}
+
+/// Detect ADB path from known locations
+fn detect_adb_path() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        // Check common system paths FIRST (more reliable)
+        let system_paths = [
+            "/opt/homebrew/bin/adb",
+            "/usr/local/bin/adb",
+            "/usr/bin/adb",
+        ];
+        for path in system_paths {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+        
+        // Fallback to MuMu installation
+        let mumu_paths = [
+            "/Applications/MuMuPlayer.app/Contents/MacOS/MuMuEmulator.app/Contents/MacOS/tools/adb",
+            "/Applications/MuMu Player.app/Contents/MacOS/MuMuEmulator.app/Contents/MacOS/tools/adb",
+            "/Applications/MuMuPlayerPro.app/Contents/MacOS/MuMuEmulator.app/Contents/MacOS/tools/adb",
+        ];
+        for path in mumu_paths {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Check MuMu installation paths
+        let mumu_paths = [
+            "C:\\Program Files\\Netease\\MuMuPlayerGlobal-12.0\\shell\\adb.exe",
+            "C:\\Program Files\\Netease\\MuMuPlayer-12.0\\shell\\adb.exe",
+            "C:\\Program Files (x86)\\Netease\\MuMuPlayerGlobal-12.0\\shell\\adb.exe",
+            "C:\\Program Files (x86)\\Netease\\MuMuPlayer-12.0\\shell\\adb.exe",
+            "D:\\Program Files\\Netease\\MuMuPlayerGlobal-12.0\\shell\\adb.exe",
+            "D:\\Program Files\\Netease\\MuMuPlayer-12.0\\shell\\adb.exe",
+        ];
+        for path in mumu_paths {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+        
+        // Check common system paths
+        let system_paths = [
+            "C:\\platform-tools\\adb.exe",
+            "C:\\Android\\platform-tools\\adb.exe",
+        ];
+        for path in system_paths {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+    }
+    
+    // Fallback to PATH
+    "adb".to_string()
+}
+
+/// Execute ADB command and return output
+fn adb_cmd(args: &[&str]) -> Result<String> {
+    let adb = get_adb_path();
+    let output = Command::new(&adb)
+        .args(args)
+        .output()?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Connect to device
+pub fn connect(port: u16) -> Result<String> {
+    let addr = format!("127.0.0.1:{}", port);
+    adb_cmd(&["connect", &addr])?;
+    Ok(format!("已连接 {}", addr))
+}
+
+/// Disconnect from device
+pub fn disconnect(port: u16) -> Result<()> {
+    let addr = format!("127.0.0.1:{}", port);
+    adb_cmd(&["disconnect", &addr])?;
+    Ok(())
+}
+
+/// Check if device is connected
+pub fn is_connected(port: u16) -> bool {
+    let addr = format!("127.0.0.1:{}", port);
+    let emulator_addr = format!("emulator-{}", port);
+    if let Ok(output) = adb_cmd(&["devices"]) {
+        (output.contains(&addr) || output.contains(&emulator_addr)) && output.contains("device")
+    } else {
+        false
+    }
+}
+
+/// Scan for MuMu emulator instances using mumutool
+pub fn scan_mumu_instances() -> Vec<MumuInstance> {
+    let mut instances = Vec::new();
+
+    // Try using mumutool first (most reliable)
+    #[cfg(target_os = "macos")]
+    {
+        let mumutool_paths = [
+            "/Applications/MuMuPlayer.app/Contents/MacOS/mumutool",
+            "/Applications/MuMu Player.app/Contents/MacOS/mumutool",
+        ];
+        
+        for tool_path in mumutool_paths {
+            if std::path::Path::new(tool_path).exists() {
+                if let Ok(output) = Command::new(tool_path).args(["info", "all"]).output() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    // Parse JSON response
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                        if let Some(results) = json.get("return")
+                            .and_then(|r| r.get("results"))
+                            .and_then(|r| r.as_array())
+                        {
+                            for item in results {
+                                let index = item.get("index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("MuMu").to_string();
+                                let port = item.get("adb_port").and_then(|v| v.as_u64()).unwrap_or(5555) as u16;
+                                let state = item.get("state").and_then(|v| v.as_str()).unwrap_or("");
+                                let running = state == "running";
+                                
+                                if running {
+                                    instances.push(MumuInstance {
+                                        index,
+                                        name: format!("127.0.0.1:{}", port),
+                                        port,
+                                        running,
+                                        display_name: format!("{} (端口 {})", name, port),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Fallback: check adb devices if mumutool didn't find anything
+    if instances.is_empty() {
+        if let Ok(output) = adb_cmd(&["devices"]) {
+            for line in output.lines() {
+                if line.contains("device") && !line.contains("List") && !line.contains("offline") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if let Some(addr) = parts.first() {
+                        let addr_str = addr.to_string();
+                        
+                        let (port, display) = if addr_str.starts_with("emulator-") {
+                            let port_str = addr_str.replace("emulator-", "");
+                            let port = port_str.parse::<u16>().unwrap_or(5554);
+                            (port, format!("模拟器 ({})", addr_str))
+                        } else if addr_str.contains(':') {
+                            let port = addr_str.split(':').last()
+                                .and_then(|p| p.parse::<u16>().ok())
+                                .unwrap_or(5555);
+                            (port, format!("模拟器 (端口 {})", port))
+                        } else {
+                            continue;
+                        };
+                        
+                        instances.push(MumuInstance {
+                            index: instances.len() as i32,
+                            name: addr_str,
+                            port,
+                            running: true,
+                            display_name: display,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    instances
+}
+
+/// Tap at coordinates
+pub fn tap(device: &str, x: i32, y: i32) -> Result<()> {
+    let adb = get_adb_path();
+    Command::new(&adb)
+        .args(["-s", device, "shell", "input", "tap", &x.to_string(), &y.to_string()])
+        .output()?;
+    Ok(())
+}
+
+/// Input text into focused field
+pub fn input_text(device: &str, text: &str) -> Result<()> {
+    let adb = get_adb_path();
+    
+    // For text with spaces, we need to use a different approach
+    // Option 1: Use broadcast with ADB_INPUT_TEXT (requires app support)
+    // Option 2: Input character by character for special chars
+    // Option 3: Use base64 encoding (complex)
+    
+    // Simple approach: split by spaces and input each word, then add space
+    // But this is slow. Better: escape spaces properly for the shell
+    
+    // The issue is that `adb shell input text "hello world"` doesn't work
+    // because the shell interprets the space. We need to escape it.
+    
+    // Use single quotes and escape properly for bash -> adb shell
+    // Replace space with '\ ' (escaped space in shell)
+    let escaped_text = text
+        .replace('\\', "\\\\\\\\")  // Escape backslash
+        .replace(' ', "\\ ")         // Escape space with backslash
+        .replace('"', "\\\"")
+        .replace('\'', "'\\''")
+        .replace('&', "\\&")
+        .replace('|', "\\|")
+        .replace(';', "\\;")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
+        .replace('<', "\\<")
+        .replace('>', "\\>");
+    
+    // Use the escaped text directly without quotes
+    Command::new(&adb)
+        .args(["-s", device, "shell", "input", "text", &escaped_text])
+        .output()?;
+    Ok(())
+}
+
+/// Get screen size from device
+pub fn get_screen_size(device: &str) -> (i32, i32) {
+    let adb = get_adb_path();
+    if let Ok(output) = Command::new(&adb).args(["-s", device, "shell", "wm", "size"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Parse "Physical size: 1080x1920" or "Physical size: 2160x3840"
+        if let Some(size_part) = stdout.split(':').nth(1) {
+            let parts: Vec<&str> = size_part.trim().split('x').collect();
+            if parts.len() == 2 {
+                if let (Ok(w), Ok(h)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                    return (w, h);
+                }
+            }
+        }
+    }
+    (1080, 1920) // Default
+}
+
+/// Page type detected from screenshot
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum PageType {
+    NewbieList,  // 新人榜页面 (橙色顶部)
+    Chat,        // 聊天页面 (白色顶部)
+    Unknown,     // 无法识别
+}
+
+/// Detect current page by checking top area color
+/// Returns PageType based on the color at top-center of screen
+pub fn detect_page(device: &str) -> PageType {
+    let adb = get_adb_path();
+    
+    // Take screenshot and get raw bytes
+    let output = match Command::new(&adb)
+        .args(["-s", device, "shell", "screencap", "-p"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return PageType::Unknown,
+    };
+    
+    if output.stdout.is_empty() {
+        return PageType::Unknown;
+    }
+    
+    // Fix line endings (adb on some devices converts \n to \r\n)
+    let png_data: Vec<u8> = output.stdout
+        .windows(2)
+        .filter(|w| !(w[0] == 0x0d && w[1] == 0x0a))
+        .map(|w| w[0])
+        .chain(std::iter::once(*output.stdout.last().unwrap_or(&0)))
+        .collect();
+    
+    // Decode PNG
+    let img = match image::load_from_memory(&png_data) {
+        Ok(img) => img,
+        Err(_) => {
+            // Try original data without fix
+            match image::load_from_memory(&output.stdout) {
+                Ok(img) => img,
+                Err(_) => return PageType::Unknown,
+            }
+        }
+    };
+    
+    let rgb = img.to_rgb8();
+    let (width, height) = rgb.dimensions();
+    
+    // Sample multiple points for better detection
+    // Point 1: Top center (for header color)
+    let top_y = height / 20; // 5% from top
+    let top_pixel = rgb.get_pixel(width / 2, top_y);
+    let top_r = top_pixel[0];
+    let top_g = top_pixel[1];
+    let top_b = top_pixel[2];
+    
+    // Point 2: Title area (about 8% from top, where "新星用户萌新榜" would be)
+    let title_y = height * 8 / 100;
+    let title_pixel = rgb.get_pixel(width / 2, title_y);
+    let title_r = title_pixel[0];
+    let title_g = title_pixel[1];
+    let title_b = title_pixel[2];
+    
+    // Point 3: Check for input box area (about 90% from top)
+    // Chat page input box is usually white/light gray
+    let input_y = height * 90 / 100;
+    let input_pixel = rgb.get_pixel(width / 2, input_y);
+    let input_r = input_pixel[0];
+    let input_g = input_pixel[1];
+    let input_b = input_pixel[2];
+    
+    // Debug: log the colors (can be removed later)
+    // println!("Top: ({}, {}, {}), Title: ({}, {}, {}), List: ({}, {}, {})", 
+    //     top_r, top_g, top_b, title_r, title_g, title_b, list_r, list_g, list_b);
+    
+    // Detection logic:
+    // 1. Newbie list: orange/yellow gradient at top AND title area
+    //    - Top area has high R (>200), medium G (100-200), low B (<150)
+    //    - Title area also has orange tint
+    let is_orange_top = top_r > 200 && top_g > 100 && top_g < 220 && top_b < 180;
+    let is_orange_title = title_r > 200 && title_g > 100 && title_b < 180;
+    
+    // 2. Chat page: has input box at bottom (white/light area around 90% height)
+    //    - Input area is white/light gray
+    //    - Top can be white or light purple
+    let is_white_top = top_r > 230 && top_g > 230 && top_b > 230;
+    let is_light_purple_top = top_r > 200 && top_b > 200 && top_g > 180 && top_g < 240;
+    let has_input_box = input_r > 230 && input_g > 230 && input_b > 230;
+    
+    // 3. Profile/other pages: gradient purple/pink at top with specific pattern
+    let is_dark_purple_gradient = top_r > 150 && top_r < 220 && top_b > 150 && top_g < 180;
+    
+    if is_orange_top && is_orange_title {
+        // Strong orange at both top and title = Newbie list
+        PageType::NewbieList
+    } else if is_orange_top || is_orange_title {
+        // Orange at either location = likely Newbie list
+        PageType::NewbieList
+    } else if (is_white_top || is_light_purple_top) && has_input_box {
+        // White/purple top WITH input box = Chat page
+        PageType::Chat
+    } else if is_dark_purple_gradient {
+        // Dark purple/pink gradient = Profile or other page
+        PageType::Unknown
+    } else if is_white_top && !has_input_box {
+        // White top WITHOUT input box = Message list or other page (NOT chat)
+        PageType::Unknown
+    } else if is_light_purple_top && has_input_box {
+        // Light purple with input = Chat
+        PageType::Chat
+    } else {
+        PageType::Unknown
+    }
+}
+
+/// Tauri command to detect current page
+#[tauri::command]
+pub fn cmd_detect_page(state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    let page = detect_page(&device);
+    let result = match page {
+        PageType::NewbieList => "newbie_list",
+        PageType::Chat => "chat",
+        PageType::Unknown => "unknown",
+    };
+    Ok(result.to_string())
+}
+
+// Tauri commands
+#[tauri::command]
+pub fn cmd_adb_connect(port: u16, state: State<'_, AppState>) -> Result<String, String> {
+    // First check if device is already connected with emulator format
+    let emulator_addr = format!("emulator-{}", port);
+    let ip_addr = format!("127.0.0.1:{}", port);
+    
+    // Check which format the device is using
+    let device_addr = if let Ok(output) = adb_cmd(&["devices"]) {
+        if output.contains(&emulator_addr) {
+            emulator_addr.clone()
+        } else {
+            // Try to connect with IP format
+            let _ = connect(port);
+            ip_addr.clone()
+        }
+    } else {
+        let _ = connect(port);
+        ip_addr.clone()
+    };
+    
+    // Fetch and cache screen size on connect
+    let screen_size = get_screen_size(&device_addr);
+    *state.screen_size.lock().unwrap() = Some(screen_size);
+    state.add_log(&format!("📐 屏幕尺寸: {}x{}", screen_size.0, screen_size.1));
+    
+    *state.connected_device.lock().unwrap() = Some(device_addr.clone());
+    *state.connected_port.lock().unwrap() = Some(port);
+    state.add_log(&format!("✅ ADB 已连接: {}", device_addr));
+    Ok(format!("已连接 {}", device_addr))
+}
+
+#[tauri::command]
+pub fn cmd_adb_disconnect(state: State<'_, AppState>) -> Result<String, String> {
+    // Get port first, then release lock before doing anything else
+    let port = {
+        let guard = state.connected_port.lock().unwrap();
+        *guard
+    };
+    
+    if let Some(p) = port {
+        // Disconnect ADB (ignore errors)
+        let _ = disconnect(p);
+    }
+    
+    // Clear state (separate lock acquisitions to avoid deadlock)
+    {
+        let mut device = state.connected_device.lock().unwrap();
+        *device = None;
+    }
+    {
+        let mut port = state.connected_port.lock().unwrap();
+        *port = None;
+    }
+    {
+        let mut screen_size = state.screen_size.lock().unwrap();
+        *screen_size = None;
+    }
+    
+    state.add_log("🔌 ADB 已断开");
+    Ok("已断开".to_string())
+}
+
+#[tauri::command]
+pub fn cmd_adb_status(state: State<'_, AppState>) -> bool {
+    if let Some(port) = *state.connected_port.lock().unwrap() {
+        is_connected(port)
+    } else {
+        false
+    }
+}
+
+#[tauri::command]
+pub fn cmd_adb_scan_instances() -> Vec<MumuInstance> {
+    scan_mumu_instances()
+}
+
+#[tauri::command]
+pub fn cmd_adb_get_info() -> AdbInfo {
+    let is_custom = CUSTOM_ADB_PATH.lock().map(|g| g.is_some()).unwrap_or(false);
+    let path = get_adb_path();
+    let found = if path == "adb" {
+        // Check if adb is in PATH
+        Command::new("which")
+            .arg("adb")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    } else {
+        std::path::Path::new(&path).exists()
+    };
+    
+    AdbInfo { path, found, is_custom }
+}
+
+#[tauri::command]
+pub fn cmd_adb_set_path(path: String, state: State<'_, AppState>) -> Result<String, String> {
+    // Validate the path exists
+    if !path.is_empty() && !std::path::Path::new(&path).exists() {
+        return Err(format!("路径不存在: {}", path));
+    }
+    
+    if let Ok(mut guard) = CUSTOM_ADB_PATH.lock() {
+        if path.is_empty() {
+            *guard = None;
+            state.add_log("🔧 已重置 ADB 路径为自动检测");
+            Ok("已重置为自动检测".to_string())
+        } else {
+            *guard = Some(path.clone());
+            state.add_log(&format!("🔧 已设置 ADB 路径: {}", path));
+            Ok(format!("已设置: {}", path))
+        }
+    } else {
+        Err("设置失败".to_string())
+    }
+}
