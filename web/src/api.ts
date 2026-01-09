@@ -85,6 +85,97 @@ export const adbApi = {
     }
     return { data: "unknown" };
   },
+
+  openRoom: async (
+    roomId: string
+  ): Promise<{ data: { success: boolean; message: string } }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_open_room", { roomId });
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  openChat: async (
+    uid: string
+  ): Promise<{ data: { success: boolean; message: string } }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_open_chat", { uid });
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  openUser: async (
+    uid: string
+  ): Promise<{ data: { success: boolean; message: string } }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_open_user", { uid });
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  openMessageList: async (): Promise<{
+    data: { success: boolean; message: string };
+  }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_open_message_list");
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  openRoute: async (
+    route: string
+  ): Promise<{ data: { success: boolean; message: string } }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_open_route", { route });
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  tapMeTab: async (): Promise<{
+    data: { success: boolean; message: string };
+  }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_tap_me_tab");
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  tapNovaUserList: async (): Promise<{
+    data: { success: boolean; message: string };
+  }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_tap_nova_user_list");
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  tapAt: async (
+    x: number,
+    y: number
+  ): Promise<{ data: { success: boolean; message: string } }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_tap_at", { x, y });
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  navigateToNovaList: async (): Promise<{
+    data: { success: boolean; message: string };
+  }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_navigate_to_nova_list");
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
 };
 
 // Logs API

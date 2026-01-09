@@ -534,3 +534,221 @@ pub fn cmd_adb_set_path(path: String, state: State<'_, AppState>) -> Result<Stri
         Err("设置失败".to_string())
     }
 }
+
+/// Open a room by room_id using router scheme
+pub fn open_room(device: &str, room_id: &str) -> Result<()> {
+    let adb = get_adb_path();
+    let uri = format!("router://openRoom?room_id={}", room_id);
+    Command::new(&adb)
+        .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
+        .output()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_open_room(room_id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    if room_id.trim().is_empty() {
+        return Err("请输入房间 ID".to_string());
+    }
+    
+    open_room(&device, &room_id).map_err(|e| e.to_string())?;
+    state.add_log(&format!("跳转房间: {}", room_id));
+    Ok(format!("已跳转到房间 {}", room_id))
+}
+
+/// Open chat with user by uid using router scheme
+pub fn open_chat(device: &str, uid: &str) -> Result<()> {
+    let adb = get_adb_path();
+    let uri = format!("router://openChat?uid={}", uid);
+    Command::new(&adb)
+        .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
+        .output()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_open_chat(uid: String, state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    if uid.trim().is_empty() {
+        return Err("请输入用户 ID".to_string());
+    }
+    
+    open_chat(&device, &uid).map_err(|e| e.to_string())?;
+    state.add_log(&format!("打开聊天: {}", uid));
+    Ok(format!("已打开与用户 {} 的聊天", uid))
+}
+
+/// Open user homepage by uid using router scheme
+pub fn open_user(device: &str, uid: &str) -> Result<()> {
+    let adb = get_adb_path();
+    let uri = format!("router://openUser?uid={}", uid);
+    Command::new(&adb)
+        .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
+        .output()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_open_user(uid: String, state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    if uid.trim().is_empty() {
+        return Err("请输入用户 ID".to_string());
+    }
+    
+    open_user(&device, &uid).map_err(|e| e.to_string())?;
+    state.add_log(&format!("打开用户主页: {}", uid));
+    Ok(format!("已打开用户 {} 的主页", uid))
+}
+
+/// Open message list page
+pub fn open_message_list(device: &str) -> Result<()> {
+    let adb = get_adb_path();
+    Command::new(&adb)
+        .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", "router://openMessageList"])
+        .output()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_open_message_list(state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    open_message_list(&device).map_err(|e| e.to_string())?;
+    state.add_log("打开消息列表");
+    Ok("已打开消息列表".to_string())
+}
+
+/// Open any router scheme (for debugging)
+pub fn open_route(device: &str, route: &str) -> Result<()> {
+    let adb = get_adb_path();
+    let uri = if route.starts_with("router://") {
+        route.to_string()
+    } else {
+        format!("router://{}", route)
+    };
+    Command::new(&adb)
+        .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
+        .output()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_open_route(route: String, state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    if route.trim().is_empty() {
+        return Err("请输入 route".to_string());
+    }
+    
+    open_route(&device, &route).map_err(|e| e.to_string())?;
+    state.add_log(&format!("调试路由: {}", route));
+    Ok(format!("已执行: {}", route))
+}
+
+/// Navigate to "我的" tab by tapping the bottom-right area
+/// Since there's no direct route for this tab, we use coordinate-based tap
+pub fn tap_me_tab(device: &str, screen_width: i32, screen_height: i32) -> Result<()> {
+    // 4 tabs at bottom: 娱乐(0), 约玩(1), 消息(2), 我的(3)
+    // Tab 3 (我的) is at the rightmost position
+    // X position: 7/8 of screen width (center of 4th quarter)
+    // Y position: near bottom, about 97% of screen height
+    let x = screen_width * 7 / 8;
+    let y = screen_height * 97 / 100;
+    tap(device, x, y)
+}
+
+#[tauri::command]
+pub fn cmd_tap_me_tab(state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    let screen_size = state.screen_size.lock().unwrap()
+        .ok_or("未获取屏幕尺寸，请重新连接")?;
+    
+    tap_me_tab(&device, screen_size.0, screen_size.1).map_err(|e| e.to_string())?;
+    state.add_log(&format!("点击「我的」Tab ({}x{})", screen_size.0, screen_size.1));
+    Ok("已点击「我的」Tab".to_string())
+}
+
+/// Tap on "新星用户榜" menu item in the "我的" tab
+/// This is typically located in the middle-upper area of the profile page
+pub fn tap_nova_user_list(device: &str, screen_width: i32, screen_height: i32) -> Result<()> {
+    // "新星用户榜" is a menu item in the profile page
+    // Based on typical layout, it's around 40-50% from top
+    // X position: center of screen
+    // Y position: approximately 45% from top (adjust based on actual layout)
+    let x = screen_width / 2;
+    let y = screen_height * 45 / 100;
+    tap(device, x, y)
+}
+
+#[tauri::command]
+pub fn cmd_tap_nova_user_list(state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    let screen_size = state.screen_size.lock().unwrap()
+        .ok_or("未获取屏幕尺寸，请重新连接")?;
+    
+    tap_nova_user_list(&device, screen_size.0, screen_size.1).map_err(|e| e.to_string())?;
+    state.add_log("点击「新星用户榜」");
+    Ok("已点击「新星用户榜」".to_string())
+}
+
+/// Generic tap at coordinates (exposed for debugging)
+#[tauri::command]
+pub fn cmd_tap_at(x: i32, y: i32, state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    tap(&device, x, y).map_err(|e| e.to_string())?;
+    state.add_log(&format!("点击坐标: ({}, {})", x, y));
+    Ok(format!("已点击 ({}, {})", x, y))
+}
+
+/// Navigate to "我的" tab and then tap "新星用户榜"
+/// This is a combined action with a delay between steps
+pub fn navigate_to_nova_list(device: &str, screen_width: i32, screen_height: i32) -> Result<()> {
+    // Step 1: Tap "我的" tab
+    tap_me_tab(device, screen_width, screen_height)?;
+    
+    // Step 2: Wait for page to load (1 second)
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    
+    // Step 3: Tap "新星用户榜"
+    tap_nova_user_list(device, screen_width, screen_height)?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cmd_navigate_to_nova_list(state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    let screen_size = state.screen_size.lock().unwrap()
+        .ok_or("未获取屏幕尺寸，请重新连接")?;
+    
+    state.add_log("开始导航到「新星用户榜」...");
+    navigate_to_nova_list(&device, screen_size.0, screen_size.1).map_err(|e| e.to_string())?;
+    state.add_log("已导航到「新星用户榜」");
+    Ok("已导航到「新星用户榜」".to_string())
+}
