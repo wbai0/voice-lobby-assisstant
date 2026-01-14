@@ -18,6 +18,8 @@ export interface AdbInfo {
   path: string;
   found: boolean;
   is_custom: boolean;
+  bundled_path?: string;
+  exe_path?: string;
 }
 
 // ADB API

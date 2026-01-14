@@ -1078,6 +1078,20 @@ function MainApp() {
                     {adbInfo?.data?.found ? "OK" : "未找到"}
                   </Tag>
                 </Flex>
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 11, wordBreak: "break-all" }}
+                >
+                  路径: {adbInfo?.data?.path || "未知"}
+                </Text>
+                {adbInfo?.data?.bundled_path && (
+                  <Text
+                    type="secondary"
+                    style={{ fontSize: 11, wordBreak: "break-all" }}
+                  >
+                    打包路径: {adbInfo.data.bundled_path}
+                  </Text>
+                )}
                 <Space.Compact style={{ width: "100%" }}>
                   <Input
                     size="small"

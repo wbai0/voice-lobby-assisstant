@@ -22,6 +22,8 @@ pub struct AdbInfo {
     pub path: String,
     pub found: bool,
     pub is_custom: bool,
+    pub bundled_path: Option<String>,
+    pub exe_path: Option<String>,
 }
 
 /// Get bundled ADB path based on current executable location
@@ -54,6 +56,34 @@ fn get_bundled_adb_path() -> Option<String> {
         }
     }
     
+    None
+}
+
+/// Get bundled ADB path for debugging (returns the expected path even if not exists)
+fn get_bundled_adb_path_debug() -> Option<String> {
+    let exe_path = std::env::current_exe().ok()?;
+    
+    #[cfg(target_os = "macos")]
+    {
+        let resources_dir = exe_path
+            .parent()?
+            .parent()?
+            .join("Resources")
+            .join("adb")
+            .join("adb");
+        return Some(resources_dir.to_string_lossy().to_string());
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        let adb_path = exe_path
+            .parent()?
+            .join("adb")
+            .join("adb.exe");
+        return Some(adb_path.to_string_lossy().to_string());
+    }
+    
+    #[allow(unreachable_code)]
     None
 }
 
@@ -537,18 +567,32 @@ pub fn cmd_adb_scan_instances() -> Vec<MumuInstance> {
 pub fn cmd_adb_get_info() -> AdbInfo {
     let is_custom = CUSTOM_ADB_PATH.lock().map(|g| g.is_some()).unwrap_or(false);
     let path = get_adb_path();
-    let found = if path == "adb" {
+    let found = if path == "adb" || path == "adb.exe" {
         // Check if adb is in PATH
-        Command::new("which")
-            .arg("adb")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("where")
+                .arg("adb")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new("which")
+                .arg("adb")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
     } else {
         std::path::Path::new(&path).exists()
     };
     
-    AdbInfo { path, found, is_custom }
+    let bundled_path = get_bundled_adb_path_debug();
+    let exe_path = std::env::current_exe().ok().map(|p| p.to_string_lossy().to_string());
+    
+    AdbInfo { path, found, is_custom, bundled_path, exe_path }
 }
 
 #[tauri::command]
