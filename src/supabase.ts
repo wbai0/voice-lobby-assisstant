@@ -1,14 +1,22 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://kdgavzsulrksnsdnsngu.supabase.co";
-const supabaseAnonKey = "sb_publishable_R_4MREMAaP8sMuwn8GFUOQ__zforI-W";
+// Supabase configuration from environment variables
+// For local development, create a .env file with:
+//   VITE_SUPABASE_URL=https://your-project.supabase.co
+//   VITE_SUPABASE_ANON_KEY=your-anon-key
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL ||
+  "https://kdgavzsulrksnsdnsngu.supabase.co";
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "sb_publishable_R_4MREMAaP8sMuwn8GFUOQ__zforI-W";
 
-// 注意：这是 Data API 的 publishable key
-// 用于客户端访问，需要配合 RLS 策略使用
+// Note: This is a publishable key for client-side access
+// Security is enforced via Row Level Security (RLS) policies in Supabase
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// 用户订阅状态类型
+// User subscription status type
 export interface UserProfile {
   id: string;
   email: string;
@@ -18,5 +26,5 @@ export interface UserProfile {
   last_usage_date: string;
 }
 
-// 每日免费使用次数
+// Daily free usage limit
 export const FREE_DAILY_LIMIT = 10;

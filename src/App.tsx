@@ -195,6 +195,7 @@ function SortableMessageItem({
             icon={<DeleteOutlined />}
             disabled={isRunning}
             onClick={onRemove}
+            aria-label="删除此项"
           />
         )}
       </Flex>
@@ -626,6 +627,7 @@ function MainApp() {
   const adbDisconnect = useMutation({
     mutationFn: adbApi.disconnect,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["adb"] }),
+    onError: (err: Error) => messageApi.error(`断开连接失败: ${err.message}`),
   });
   const startAuto = useMutation({
     mutationFn: async () => {
@@ -644,10 +646,12 @@ function MainApp() {
   const stopAuto = useMutation({
     mutationFn: autoMessageApi.stop,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["autoStatus", "logs"] }),
+    onError: (err: Error) => messageApi.error(`停止失败: ${err.message}`),
   });
   const clearLogs = useMutation({
     mutationFn: logsApi.clear,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["logs"] }),
+    onError: (err: Error) => messageApi.error(`清除日志失败: ${err.message}`),
   });
   const testInChat = useMutation({
     mutationFn: () =>
@@ -664,6 +668,8 @@ function MainApp() {
       qc.invalidateQueries({ queryKey: ["adbInfo"] });
       messageApi.success("已设置");
     },
+    onError: (err: Error) =>
+      messageApi.error(`设置ADB路径失败: ${err.message}`),
   });
   const openRoom = useMutation({
     mutationFn: (roomId: string) => adbApi.openRoom(roomId),
@@ -943,6 +949,7 @@ function MainApp() {
                 size="small"
                 icon={<PlusOutlined />}
                 onClick={addFavoriteUser}
+                aria-label="添加收藏用户"
               />
             </Flex>
             <div style={{ flex: 1, overflow: "auto" }}>
@@ -1062,12 +1069,14 @@ function MainApp() {
                 type="text"
                 icon={<SettingOutlined />}
                 onClick={() => setShowSettings(!showSettings)}
+                aria-label="设置"
               />
               <Button
                 size="small"
                 type="text"
                 icon={<LogoutOutlined />}
                 onClick={signOut}
+                aria-label="退出登录"
               />
             </Space>
           </Flex>
@@ -1179,6 +1188,7 @@ function MainApp() {
                     size="small"
                     icon={<ReloadOutlined />}
                     onClick={() => refetchInstances()}
+                    aria-label="刷新模拟器列表"
                   />
                   <Button
                     size="small"
@@ -1842,6 +1852,7 @@ function MainApp() {
             type="text"
             icon={<ClearOutlined />}
             onClick={() => clearLogs.mutate()}
+            aria-label="清除日志"
           >
             清空
           </Button>
