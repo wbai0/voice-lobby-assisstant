@@ -6,6 +6,7 @@ export interface UpdateInfo {
   available: boolean;
   version?: string;
   downloading: boolean;
+  checking: boolean;
   progress: number;
   error?: string;
 }
@@ -14,10 +15,12 @@ export function useUpdater() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo>({
     available: false,
     downloading: false,
+    checking: false,
     progress: 0,
   });
 
-  const checkForUpdates = async () => {
+  const checkForUpdates = async (): Promise<boolean> => {
+    setUpdateInfo((prev) => ({ ...prev, checking: true, error: undefined }));
     try {
       const update = await check();
       if (update) {
@@ -25,18 +28,27 @@ export function useUpdater() {
           available: true,
           version: update.version,
           downloading: false,
+          checking: false,
           progress: 0,
         });
-        return update;
+        return true;
+      } else {
+        setUpdateInfo((prev) => ({
+          ...prev,
+          checking: false,
+          available: false,
+        }));
+        return false;
       }
     } catch (error) {
       console.error("Failed to check for updates:", error);
       setUpdateInfo((prev) => ({
         ...prev,
+        checking: false,
         error: String(error),
       }));
+      return false;
     }
-    return null;
   };
 
   const downloadAndInstall = async () => {

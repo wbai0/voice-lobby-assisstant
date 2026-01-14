@@ -393,6 +393,13 @@ function MainApp() {
     }
   }, [updater.available, updater.version]);
 
+  // Show error notification when update check fails
+  useEffect(() => {
+    if (updater.error) {
+      messageApi.error(`检查更新失败: ${updater.error}`);
+    }
+  }, [updater.error]);
+
   useEffect(() => {
     if (profile) logsApi.setAdmin(profile.is_admin ?? false);
   }, [profile]);
@@ -1115,7 +1122,7 @@ function MainApp() {
                     borderTop: "1px solid #f0f0f0",
                   }}
                 >
-                  <Text type="secondary">版本 1.0.3</Text>
+                  <Text type="secondary">版本 1.0.4</Text>
                   {updater.available ? (
                     <Button
                       size="small"
@@ -1131,9 +1138,15 @@ function MainApp() {
                   ) : (
                     <Button
                       size="small"
-                      onClick={() => updater.checkForUpdates()}
+                      loading={updater.checking}
+                      onClick={async () => {
+                        const hasUpdate = await updater.checkForUpdates();
+                        if (!hasUpdate) {
+                          messageApi.success("已是最新版本");
+                        }
+                      }}
                     >
-                      检查更新
+                      {updater.checking ? "检查中..." : "检查更新"}
                     </Button>
                   )}
                 </Flex>
