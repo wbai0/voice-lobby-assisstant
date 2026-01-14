@@ -1147,38 +1147,72 @@ function MainApp() {
             style={{ background: connected ? "#f6ffed" : "#fff" }}
           >
             {!connected ? (
-              <Space.Compact style={{ width: "100%" }}>
-                <Select
-                  style={{ flex: 1 }}
-                  size="small"
-                  placeholder="选择模拟器"
-                  value={selectedPort}
-                  onChange={setSelectedPort}
-                  options={runningInstances.map((i) => ({
-                    label: i.display_name,
-                    value: i.port,
-                  }))}
-                  notFoundContent="未发现"
-                  suffixIcon={<DownOutlined />}
-                />
-                <Button
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={() => refetchInstances()}
-                />
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<LinkOutlined />}
-                  onClick={() =>
-                    selectedPort && adbConnect.mutate(selectedPort)
-                  }
-                  disabled={!selectedPort}
-                  loading={adbConnect.isPending}
-                >
-                  连接
-                </Button>
-              </Space.Compact>
+              <Flex vertical gap={8}>
+                <Space.Compact style={{ width: "100%" }}>
+                  <Select
+                    style={{ flex: 1 }}
+                    size="small"
+                    placeholder="选择模拟器"
+                    value={selectedPort}
+                    onChange={setSelectedPort}
+                    options={runningInstances.map((i) => ({
+                      label: i.display_name,
+                      value: i.port,
+                    }))}
+                    notFoundContent="未发现"
+                    suffixIcon={<DownOutlined />}
+                  />
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={() => refetchInstances()}
+                  />
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<LinkOutlined />}
+                    onClick={() =>
+                      selectedPort && adbConnect.mutate(selectedPort)
+                    }
+                    disabled={!selectedPort}
+                    loading={adbConnect.isPending}
+                  >
+                    连接
+                  </Button>
+                </Space.Compact>
+                <Space.Compact style={{ width: "100%" }}>
+                  <Input
+                    size="small"
+                    placeholder="手动输入端口 (如 7555)"
+                    style={{ flex: 1 }}
+                    onPressEnter={(e) => {
+                      const port = parseInt(
+                        (e.target as HTMLInputElement).value
+                      );
+                      if (port > 0) {
+                        adbConnect.mutate(port);
+                      }
+                    }}
+                  />
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const input = document.querySelector(
+                        'input[placeholder*="手动输入端口"]'
+                      ) as HTMLInputElement;
+                      const port = parseInt(input?.value || "0");
+                      if (port > 0) {
+                        adbConnect.mutate(port);
+                      } else {
+                        messageApi.warning("请输入有效端口");
+                      }
+                    }}
+                    loading={adbConnect.isPending}
+                  >
+                    连接
+                  </Button>
+                </Space.Compact>
+              </Flex>
             ) : (
               <Flex justify="space-between" align="center">
                 <Flex align="center" gap={6}>
