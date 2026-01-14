@@ -1,11 +1,15 @@
 //! 跨平台 OCR 模块
-//! macOS: 使用 Vision API (Swift)
-//! Windows: 尝试使用 Tesseract CLI，如果不可用则跳过 OCR
+//! 使用 tesseract-rs 进行 OCR，支持 macOS 和 Windows
 
 use crate::adb;
-use std::process::Command;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
+use std::sync::Mutex;
+use tesseract_rs::TesseractAPI;
+
+/// 全局 Tesseract API 实例（懒加载）
+static TESSERACT_API: Mutex<Option<TesseractAPI>> = Mutex::new(None);
 
 /// OCR 识别结果
 #[derive(Debug, Clone)]
@@ -21,32 +25,142 @@ fn get_temp_path(filename: &str) -> PathBuf {
     path
 }
 
-/// 检查 Tesseract 是否可用
-#[cfg(target_os = "windows")]
-fn get_tesseract_path() -> Option<String> {
-    // 检查常见安装路径
-    let common_paths = [
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-    ];
-    
-    for path in common_paths {
-        if std::path::Path::new(path).exists() {
-            return Some(path.to_string());
+/// 获取 tessdata 目录路径
+fn get_tessdata_dir() -> PathBuf {
+    // tesseract-rs 默认下载 tessdata 到以下位置
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("tesseract-rs")
+                .join("tessdata");
         }
     }
     
-    // 检查 PATH
-    if let Ok(output) = Command::new("where").arg("tesseract").output() {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata)
+                .join("tesseract-rs")
+                .join("tessdata");
+        }
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home)
+                .join(".tesseract-rs")
+                .join("tessdata");
+        }
+    }
+    
+    PathBuf::from("tessdata")
+}
+
+/// 确保 chi_sim.traineddata 存在，如果不存在则下载
+fn ensure_chi_sim_traineddata(tessdata_dir: &PathBuf) {
+    let chi_sim_path = tessdata_dir.join("chi_sim.traineddata");
+    if chi_sim_path.exists() {
+        return;
+    }
+    
+    // 创建目录
+    let _ = fs::create_dir_all(tessdata_dir);
+    
+    // 下载 chi_sim.traineddata (fast version, ~2.4MB)
+    let url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata";
+    
+    if let Ok(output) = Command::new("curl")
+        .args(["-L", "-o", chi_sim_path.to_str().unwrap_or(""), url])
+        .output()
+    {
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Some(path.lines().next().unwrap_or("").to_string());
-            }
+            eprintln!("Downloaded chi_sim.traineddata");
+        }
+    }
+}
+
+/// 初始化或获取 Tesseract API
+fn with_tesseract<F, R>(f: F) -> Option<R>
+where
+    F: FnOnce(&TesseractAPI) -> Option<R>,
+{
+    let mut guard = TESSERACT_API.lock().ok()?;
+    
+    // 如果还没初始化，先初始化
+    if guard.is_none() {
+        let api = TesseractAPI::new();
+        let tessdata_dir = get_tessdata_dir();
+        
+        // 确保中文训练数据存在
+        ensure_chi_sim_traineddata(&tessdata_dir);
+        
+        let tessdata_str = match tessdata_dir.to_str() {
+            Some(s) => s,
+            None => return None,
+        };
+        
+        // 尝试初始化，优先使用中文+英文
+        let init_result = api.init(tessdata_str, "chi_sim+eng")
+            .or_else(|_| api.init(tessdata_str, "chi_sim"))
+            .or_else(|_| api.init(tessdata_str, "eng"));
+        
+        if init_result.is_ok() {
+            *guard = Some(api);
+        } else {
+            eprintln!("Tesseract init failed");
+            return None;
         }
     }
     
-    None
+    guard.as_ref().and_then(f)
+}
+
+/// 对图片进行 OCR 识别
+fn ocr_image(image_path: &PathBuf) -> OcrResult {
+    // 加载图片
+    let img = match image::open(image_path) {
+        Ok(img) => img.to_rgb8(),
+        Err(e) => {
+            return OcrResult {
+                text: format!("加载图片失败: {}", e),
+                success: false,
+            };
+        }
+    };
+    
+    let (width, height) = img.dimensions();
+    let image_data = img.into_raw();
+    
+    let result = with_tesseract(|api| {
+        // 设置图片
+        if api.set_image(
+            &image_data,
+            width as i32,
+            height as i32,
+            3,  // bytes per pixel (RGB)
+            (width * 3) as i32,  // bytes per line
+        ).is_err() {
+            return None;
+        }
+        
+        // 获取识别结果
+        api.get_utf8_text().ok()
+    });
+    
+    match result {
+        Some(text) => OcrResult {
+            text,
+            success: true,
+        },
+        None => OcrResult {
+            text: "OCR 识别失败".to_string(),
+            success: false,
+        },
+    }
 }
 
 /// 对设备截图进行 OCR 识别
@@ -82,316 +196,93 @@ pub fn ocr_screen(device: &str) -> OcrResult {
         };
     }
 
-    let result = platform_ocr(&temp_png);
+    let result = ocr_image(&temp_png);
     let _ = fs::remove_file(&temp_png);
     result
 }
 
 /// 检测是否在新人榜页面（通过 OCR）
-pub fn is_on_newbie_list(device: &str) -> bool {
-    // Windows: 尝试 Tesseract，如果不可用则跳过检测
-    #[cfg(target_os = "windows")]
-    {
-        if get_tesseract_path().is_none() {
-            // Tesseract 不可用，跳过检测
-            return true;
-        }
-    }
-    
+/// 返回 (is_on_page, ocr_text) 用于调试
+pub fn is_on_newbie_list_debug(device: &str) -> (bool, String) {
     let result = ocr_screen(device);
     if !result.success {
-        // OCR 失败时，在 Windows 上返回 true（跳过检测），macOS 上返回 false
-        #[cfg(target_os = "windows")]
-        return true;
-        #[cfg(not(target_os = "windows"))]
-        return false;
+        return (false, result.text);
     }
 
     let text = &result.text;
-    text.contains("新星用户") || text.contains("萌新榜") || text.contains("刷新一下")
+    // 检测多种可能的关键词（Tesseract 可能识别出不同的文字）
+    let is_match = text.contains("新星") 
+        || text.contains("萌新") 
+        || text.contains("用户榜")
+        || text.contains("刷新")
+        || text.contains("发现新用户");
+    
+    (is_match, result.text.clone())
+}
+
+/// 检测是否在新人榜页面（通过 OCR）
+pub fn is_on_newbie_list(device: &str) -> bool {
+    let (is_match, _) = is_on_newbie_list_debug(device);
+    is_match
 }
 
 /// 在屏幕上查找指定文字的位置（返回中心坐标）
+/// 使用 TSV 输出获取文字边界框
 pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)> {
-    // Windows: 如果 Tesseract 不可用，直接返回 None
-    #[cfg(target_os = "windows")]
-    {
-        if get_tesseract_path().is_none() {
-            let _ = (device, target_text);
-            return None;
-        }
-    }
-    
     let adb_path = adb::get_adb_path_public();
     let temp_png = get_temp_path("pico_ocr_find.png");
     
-    let output = match Command::new(&adb_path)
+    // 截图
+    let output = Command::new(&adb_path)
         .args(["-s", device, "shell", "screencap", "-p"])
         .output()
-    {
-        Ok(o) => o,
-        Err(_) => return None,
-    };
+        .ok()?;
 
     if output.stdout.is_empty() {
         return None;
     }
 
-    if fs::write(&temp_png, &output.stdout).is_err() {
-        return None;
-    }
-
-    let result = platform_find_text(&temp_png, target_text);
-    let _ = fs::remove_file(&temp_png);
-    result
-}
-
-// ============ macOS 实现 ============
-
-#[cfg(target_os = "macos")]
-fn platform_ocr(image_path: &PathBuf) -> OcrResult {
-    let swift_script = r#"
-import Vision
-import AppKit
-import Foundation
-
-let imagePath = CommandLine.arguments[1]
-guard let image = NSImage(contentsOfFile: imagePath),
-      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-    print("ERROR: Cannot load image")
-    exit(1)
-}
-
-let request = VNRecognizeTextRequest()
-request.recognitionLevel = .accurate
-request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en"]
-
-let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-try? handler.perform([request])
-
-guard let observations = request.results else {
-    print("ERROR: No results")
-    exit(1)
-}
-
-for observation in observations {
-    if let topCandidate = observation.topCandidates(1).first {
-        print(topCandidate.string)
-    }
-}
-"#;
-
-    let script_path = get_temp_path("pico_ocr.swift");
-    if let Err(e) = fs::write(&script_path, swift_script) {
-        return OcrResult {
-            text: format!("创建脚本失败: {}", e),
-            success: false,
-        };
-    }
-
-    let output = Command::new("swift")
-        .arg(&script_path)
-        .arg(image_path)
-        .output();
-
-    let _ = fs::remove_file(&script_path);
-
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-            
-            if stdout.contains("ERROR:") || !o.status.success() {
-                OcrResult {
-                    text: format!("OCR 失败: {}", stderr),
-                    success: false,
-                }
-            } else {
-                OcrResult {
-                    text: stdout,
-                    success: true,
-                }
-            }
-        }
-        Err(e) => OcrResult {
-            text: format!("执行 OCR 失败: {}", e),
-            success: false,
-        },
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn platform_find_text(image_path: &PathBuf, target_text: &str) -> Option<(i32, i32)> {
-    let swift_script = format!(r#"
-import Vision
-import AppKit
-import Foundation
-
-let imagePath = CommandLine.arguments[1]
-let targetText = "{}"
-
-guard let image = NSImage(contentsOfFile: imagePath),
-      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {{
-    exit(1)
-}}
-
-let imageWidth = CGFloat(cgImage.width)
-let imageHeight = CGFloat(cgImage.height)
-
-let request = VNRecognizeTextRequest()
-request.recognitionLevel = .accurate
-request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en"]
-
-let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-try? handler.perform([request])
-
-guard let observations = request.results else {{
-    exit(1)
-}}
-
-for observation in observations {{
-    if let topCandidate = observation.topCandidates(1).first {{
-        if topCandidate.string.contains(targetText) {{
-            let box = observation.boundingBox
-            let centerX = Int((box.origin.x + box.width / 2) * imageWidth)
-            let centerY = Int((1.0 - box.origin.y - box.height / 2) * imageHeight)
-            print("\(centerX),\(centerY)")
-            exit(0)
-        }}
-    }}
-}}
-exit(1)
-"#, target_text);
-
-    let script_path = get_temp_path("pico_ocr_find.swift");
-    if fs::write(&script_path, &swift_script).is_err() {
-        return None;
-    }
-
-    let output = Command::new("swift")
-        .arg(&script_path)
-        .arg(image_path)
-        .output();
-
-    let _ = fs::remove_file(&script_path);
-
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            let parts: Vec<&str> = stdout.split(',').collect();
-            if parts.len() == 2 {
-                if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
-                    return Some((x, y));
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-// ============ Windows 实现 (Tesseract CLI) ============
-
-#[cfg(target_os = "windows")]
-fn platform_ocr(image_path: &PathBuf) -> OcrResult {
-    let tesseract = match get_tesseract_path() {
-        Some(p) => p,
-        None => {
-            return OcrResult {
-                text: "Tesseract 未安装".to_string(),
-                success: false,
-            };
-        }
-    };
-
-    // 使用 Tesseract 进行 OCR
-    let output = Command::new(&tesseract)
-        .args([
-            image_path.to_str().unwrap_or(""),
-            "stdout",
-            "-l", "chi_sim+eng",
-            "--psm", "3",
-        ])
-        .output();
-
-    match output {
-        Ok(o) => {
-            if o.status.success() {
-                OcrResult {
-                    text: String::from_utf8_lossy(&o.stdout).to_string(),
-                    success: true,
-                }
-            } else {
-                OcrResult {
-                    text: String::from_utf8_lossy(&o.stderr).to_string(),
-                    success: false,
-                }
-            }
-        }
-        Err(e) => OcrResult {
-            text: format!("执行 Tesseract 失败: {}", e),
-            success: false,
-        },
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn platform_find_text(image_path: &PathBuf, target_text: &str) -> Option<(i32, i32)> {
-    let tesseract = get_tesseract_path()?;
-
-    // 使用 Tesseract 的 TSV 输出获取文字位置
-    let output = Command::new(&tesseract)
-        .args([
-            image_path.to_str().unwrap_or(""),
-            "stdout",
-            "-l", "chi_sim+eng",
-            "--psm", "3",
-            "tsv",
-        ])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let tsv = String::from_utf8_lossy(&output.stdout);
+    fs::write(&temp_png, &output.stdout).ok()?;
     
-    // 解析 TSV 输出，查找目标文字
-    for line in tsv.lines().skip(1) {
-        let cols: Vec<&str> = line.split('\t').collect();
-        if cols.len() >= 12 {
-            let text = cols[11];
-            if text.contains(target_text) {
-                // 列: level, page_num, block_num, par_num, line_num, word_num, left, top, width, height, conf, text
-                if let (Ok(left), Ok(top), Ok(width), Ok(height)) = (
-                    cols[6].parse::<i32>(),
-                    cols[7].parse::<i32>(),
-                    cols[8].parse::<i32>(),
-                    cols[9].parse::<i32>(),
-                ) {
-                    let center_x = left + width / 2;
-                    let center_y = top + height / 2;
+    // 加载图片
+    let img = image::open(&temp_png).ok()?.to_rgb8();
+    let (width, height) = img.dimensions();
+    let image_data = img.into_raw();
+    
+    let result = with_tesseract(|api| {
+        // 设置图片
+        api.set_image(
+            &image_data,
+            width as i32,
+            height as i32,
+            3,
+            (width * 3) as i32,
+        ).ok()?;
+        
+        // 获取 TSV 输出（包含边界框信息）
+        let tsv = api.get_tsv_text(0).ok()?;
+        
+        // 解析 TSV 查找目标文字
+        for line in tsv.lines().skip(1) {
+            let cols: Vec<&str> = line.split('\t').collect();
+            if cols.len() >= 12 {
+                let text = cols[11];
+                if text.contains(target_text) {
+                    // 列: level, page_num, block_num, par_num, line_num, word_num, left, top, width, height, conf, text
+                    let left: i32 = cols[6].parse().ok()?;
+                    let top: i32 = cols[7].parse().ok()?;
+                    let w: i32 = cols[8].parse().ok()?;
+                    let h: i32 = cols[9].parse().ok()?;
+                    
+                    let center_x = left + w / 2;
+                    let center_y = top + h / 2;
                     return Some((center_x, center_y));
                 }
             }
         }
-    }
-
-    None
-}
-
-// ============ 其他平台 ============
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn platform_ocr(_image_path: &PathBuf) -> OcrResult {
-    OcrResult {
-        text: "不支持的平台".to_string(),
-        success: false,
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn platform_find_text(_image_path: &PathBuf, _target_text: &str) -> Option<(i32, i32)> {
-    None
+        None
+    });
+    
+    let _ = fs::remove_file(&temp_png);
+    result
 }

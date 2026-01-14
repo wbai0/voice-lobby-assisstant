@@ -265,24 +265,27 @@ fn run_send_loop(
         thread::sleep(Duration::from_millis(500));
         
         set_ocr_progress(true);
-        let ocr_ok = ocr::is_on_newbie_list(&device);
+        let (ocr_ok, ocr_text) = ocr::is_on_newbie_list_debug(&device);
         set_ocr_progress(false);
         
         if ocr_ok {
             return true;
         }
         
-        // 第一次失败，等待后重试
+        // 第一次失败，记录 OCR 结果并等待重试
         if is_initial {
             logger.log("OCR: 未检测到新人榜，等待重试...");
         } else {
             logger.log("OCR: 不在新人榜，等待重试...");
         }
+        // 记录 OCR 识别的文字（截取前100字符）
+        let preview: String = ocr_text.chars().take(100).collect();
+        logger.log(&format!("OCR文字: {}", preview.replace('\n', " ")));
         
         thread::sleep(Duration::from_millis(1500));
         
         set_ocr_progress(true);
-        let retry1 = ocr::is_on_newbie_list(&device);
+        let (retry1, _) = ocr::is_on_newbie_list_debug(&device);
         set_ocr_progress(false);
         
         if retry1 {
@@ -290,22 +293,22 @@ fn run_send_loop(
             return true;
         }
         
-        // 仍然失败，尝试点返回恢复
+        // 仍然失败，尝试点返回恢复（最多2次）
         logger.log("OCR: 尝试返回...");
         
-        for attempt in 1..=3 {
+        for attempt in 1..=2 {
             click_back_button(&device, screen_size);
             thread::sleep(Duration::from_millis(2000));
             
             set_ocr_progress(true);
-            let retry_ok = ocr::is_on_newbie_list(&device);
+            let (retry_ok, _) = ocr::is_on_newbie_list_debug(&device);
             set_ocr_progress(false);
             
             if retry_ok {
-                logger.log(&format!("OCR: 第{}次恢复成功", attempt));
+                logger.log(&format!("OCR: 第{}次返回后恢复成功", attempt));
                 return true;
             }
-            logger.log(&format!("OCR: 第{}次恢复失败", attempt));
+            logger.log(&format!("OCR: 第{}次返回后仍未检测到", attempt));
         }
         
         false

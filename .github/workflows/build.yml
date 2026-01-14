@@ -38,6 +38,14 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      - name: Install CMake (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install cmake
+
+      - name: Install CMake (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: lukka/get-cmake@latest
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
