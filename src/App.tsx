@@ -18,6 +18,7 @@ import {
   Form,
   Slider,
   Modal,
+  notification,
 } from "antd";
 import {
   PlayCircleOutlined,
@@ -42,8 +43,10 @@ import {
   StarOutlined,
   StarFilled,
   SearchOutlined,
+  CloudDownloadOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "./useAuth";
+import { useUpdater } from "./useUpdater";
 import { FREE_DAILY_LIMIT } from "./supabase";
 import {
   DndContext,
@@ -331,8 +334,11 @@ function AuthWrapper() {
 function MainApp() {
   const qc = useQueryClient();
   const [messageApi, contextHolder] = message.useMessage();
+  const [notificationApi, notificationContextHolder] =
+    notification.useNotification();
   const { profile, signOut, canUseFeature, recordUsage, getRemainingUsage } =
     useAuth();
+  const updater = useUpdater();
   const [selectedPort, setSelectedPort] = useState<number | null>(null);
   const [items, setItems] = useState<ContentItemWithId[]>(() =>
     withIds([{ type: "text", content: "" }])
@@ -363,6 +369,29 @@ function MainApp() {
 
   const remainingUsage = getRemainingUsage();
   const isSubscribed = profile?.is_subscribed ?? false;
+
+  // Show update notification when available
+  useEffect(() => {
+    if (updater.available && updater.version) {
+      notificationApi.info({
+        message: "发现新版本",
+        description: `版本 ${updater.version} 可用`,
+        btn: (
+          <Button
+            type="primary"
+            size="small"
+            icon={<CloudDownloadOutlined />}
+            onClick={() => updater.downloadAndInstall()}
+            loading={updater.downloading}
+          >
+            {updater.downloading ? `下载中 ${updater.progress}%` : "立即更新"}
+          </Button>
+        ),
+        duration: 0,
+        key: "update-notification",
+      });
+    }
+  }, [updater.available, updater.version]);
 
   useEffect(() => {
     if (profile) logsApi.setAdmin(profile.is_admin ?? false);
@@ -703,6 +732,7 @@ function MainApp() {
   return (
     <Layout style={{ minHeight: "100vh", background: "#f0f2f5" }}>
       {contextHolder}
+      {notificationContextHolder}
 
       {/* 左侧边栏 - 收藏管理 */}
       <Sider
