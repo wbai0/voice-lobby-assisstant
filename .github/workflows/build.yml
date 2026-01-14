@@ -1,4 +1,4 @@
-name: Build Release
+name: Build and Release
 
 on:
   push:
@@ -7,28 +7,35 @@ on:
     tags:
       - "v*"
 
+# Default permissions - minimal
+permissions:
+  contents: read
+
 jobs:
   build-tauri:
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: "macos-latest"
+            target: "aarch64-apple-darwin"
             args: "--target aarch64-apple-darwin"
             adb_source: "adb-macos"
             cache_key: "macos-arm64"
           - platform: "macos-latest"
+            target: "x86_64-apple-darwin"
             args: "--target x86_64-apple-darwin"
             adb_source: "adb-macos"
             cache_key: "macos-x64"
           - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
             args: ""
             adb_source: "adb-windows"
             cache_key: "windows-x64"
 
     runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write # Only needed for tauri-action to create release on tags
     steps:
       - uses: actions/checkout@v4
 
@@ -41,18 +48,18 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Install CMake (macOS)
         if: matrix.platform == 'macos-latest'
-        run: brew install cmake
+        run: brew install cmake || brew upgrade cmake || true
 
       - name: Install CMake (Windows)
         if: matrix.platform == 'windows-latest'
-        uses: lukka/get-cmake@latest
+        uses: lukka/get-cmake@v3.31.6
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: "./src-tauri -> target"
           cache-on-failure: true
@@ -60,7 +67,9 @@ jobs:
 
       - name: Copy platform ADB (Unix)
         if: matrix.platform != 'windows-latest'
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p src-tauri/resources/adb
           cp src-tauri/resources/${{ matrix.adb_source }}/* src-tauri/resources/adb/
           chmod +x src-tauri/resources/adb/adb
@@ -69,16 +78,18 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p src-tauri/resources/adb
           cp src-tauri/resources/${{ matrix.adb_source }}/* src-tauri/resources/adb/
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri app (release with tag)
+      # Release build with signing (tags only)
+      - name: Build Tauri app (release)
         if: startsWith(github.ref, 'refs/tags/')
         id: tauri-release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@42bc5976c617a0ebc2cd6e4a7e0c7a1c02bbcf9e # v0.5.21
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -91,18 +102,17 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      - name: Build Tauri app (cache only on main)
+      # Cache-warming build without signing (main only)
+      - name: Build Tauri app (cache warming)
         if: github.ref == 'refs/heads/main'
+        shell: bash
         run: npm run tauri build -- ${{ matrix.args }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload artifacts for publish job
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-${{ matrix.platform }}-${{ strategy.job-index }}
+          name: artifacts-${{ matrix.cache_key }}
           path: |
             src-tauri/target/**/release/bundle/**/*.dmg
             src-tauri/target/**/release/bundle/**/*.app.tar.gz
@@ -110,14 +120,14 @@ jobs:
             src-tauri/target/**/release/bundle/**/*.exe
             src-tauri/target/**/release/bundle/**/*.msi
             src-tauri/target/**/release/bundle/**/*.msi.sig
-          if-no-files-found: ignore
+          if-no-files-found: error # Fail if artifacts missing
 
   publish-to-public:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build-tauri
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read # Only needs read; writes to external repo via token
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -129,9 +139,65 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
-      - name: Create latest.json for updater
+      - name: List and verify artifacts
+        shell: bash
         run: |
+          set -euo pipefail
+          echo "=== All artifacts ==="
+          find artifacts -type f -name "Pico*" | sort
+
+          # Verify expected artifacts exist
+          echo "=== Verifying artifacts ==="
+          AARCH64_TAR=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz" | head -1)
+          X64_TAR=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz" | head -1)
+          WIN_EXE=$(find artifacts -name "*setup.exe" | head -1)
+
+          if [ -z "$AARCH64_TAR" ]; then echo "ERROR: Missing aarch64 app bundle"; exit 1; fi
+          if [ -z "$X64_TAR" ]; then echo "ERROR: Missing x64 app bundle"; exit 1; fi
+          if [ -z "$WIN_EXE" ]; then echo "ERROR: Missing Windows exe"; exit 1; fi
+
+          echo "All required artifacts found"
+
+      - name: Rename artifacts with architecture
+        shell: bash
+        run: |
+          set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
+
+          # Rename aarch64 app bundle
+          AARCH64_TAR=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz" | head -1)
+          AARCH64_SIG=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz.sig" | head -1)
+          if [ -n "$AARCH64_TAR" ]; then
+            mv "$AARCH64_TAR" "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz"
+          fi
+          if [ -n "$AARCH64_SIG" ]; then
+            mv "$AARCH64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz.sig"
+          fi
+
+          # Rename x86_64 app bundle
+          X64_TAR=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz" | head -1)
+          X64_SIG=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz.sig" | head -1)
+          if [ -n "$X64_TAR" ]; then
+            mv "$X64_TAR" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz"
+          fi
+          if [ -n "$X64_SIG" ]; then
+            mv "$X64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig"
+          fi
+
+          echo "=== Renamed artifacts ==="
+          find artifacts -type f -name "Pico*" | sort
+
+      - name: Create latest.json for updater
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Read signatures
+          AARCH64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz.sig" 2>/dev/null || echo '')
+          X64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig" 2>/dev/null || echo '')
+          MSI_SIG=$(cat artifacts/**/Pico*.msi.sig 2>/dev/null | head -1 || echo '')
+
           cat > latest.json << EOF
           {
             "version": "${VERSION}",
@@ -139,51 +205,26 @@ jobs:
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "darwin-aarch64": {
-                "signature": "$(cat artifacts/**/Pico*.app.tar.gz.sig 2>/dev/null | head -1 || echo '')",
+                "signature": "${AARCH64_SIG}",
                 "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz"
               },
               "darwin-x86_64": {
-                "signature": "$(cat artifacts/**/Pico*x64*.app.tar.gz.sig 2>/dev/null | head -1 || echo '')",
+                "signature": "${X64_SIG}",
                 "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz"
               },
               "windows-x86_64": {
-                "signature": "$(cat artifacts/**/Pico*.msi.sig 2>/dev/null | head -1 || echo '')",
+                "signature": "${MSI_SIG}",
                 "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64-setup.exe"
               }
             }
           }
           EOF
+
+          echo "=== latest.json ==="
           cat latest.json
 
-      - name: List artifacts
-        run: find artifacts -type f -name "Pico*" | head -20
-
-      - name: Rename artifacts with architecture
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          # Find and rename aarch64 app bundle
-          AARCH64_TAR=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz" | head -1)
-          if [ -n "$AARCH64_TAR" ]; then
-            mv "$AARCH64_TAR" "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz"
-          fi
-          AARCH64_SIG=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz.sig" | head -1)
-          if [ -n "$AARCH64_SIG" ]; then
-            mv "$AARCH64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz.sig"
-          fi
-          # Find and rename x86_64 app bundle
-          X64_TAR=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz" | head -1)
-          if [ -n "$X64_TAR" ]; then
-            mv "$X64_TAR" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz"
-          fi
-          X64_SIG=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz.sig" | head -1)
-          if [ -n "$X64_SIG" ]; then
-            mv "$X64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig"
-          fi
-          echo "Renamed artifacts:"
-          find artifacts -type f -name "Pico*" | head -20
-
       - name: Publish to public releases repo
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           repository: wbai0/pico-releases
           token: ${{ secrets.RELEASE_TOKEN }}
