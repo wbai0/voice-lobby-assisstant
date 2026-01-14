@@ -146,6 +146,30 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f -name "Pico*" | head -20
 
+      - name: Rename artifacts with architecture
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Find and rename aarch64 app bundle
+          AARCH64_TAR=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz" | head -1)
+          if [ -n "$AARCH64_TAR" ]; then
+            mv "$AARCH64_TAR" "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz"
+          fi
+          AARCH64_SIG=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz.sig" | head -1)
+          if [ -n "$AARCH64_SIG" ]; then
+            mv "$AARCH64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz.sig"
+          fi
+          # Find and rename x86_64 app bundle
+          X64_TAR=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz" | head -1)
+          if [ -n "$X64_TAR" ]; then
+            mv "$X64_TAR" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz"
+          fi
+          X64_SIG=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz.sig" | head -1)
+          if [ -n "$X64_SIG" ]; then
+            mv "$X64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig"
+          fi
+          echo "Renamed artifacts:"
+          find artifacts -type f -name "Pico*" | head -20
+
       - name: Publish to public releases repo
         uses: softprops/action-gh-release@v1
         with:
