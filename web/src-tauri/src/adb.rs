@@ -686,14 +686,13 @@ pub fn cmd_tap_me_tab(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 /// Tap on "新星用户榜" menu item in the "我的" tab
-/// This is typically located in the middle-upper area of the profile page
+/// Based on screenshot: it's in the menu list, around 78-80% from top
 pub fn tap_nova_user_list(device: &str, screen_width: i32, screen_height: i32) -> Result<()> {
-    // "新星用户榜" is a menu item in the profile page
-    // Based on typical layout, it's around 40-50% from top
+    // "新星用户榜" is below 公会中心, 主播任务, 主播工具中心
+    // From screenshot analysis: approximately 78% from top
     // X position: center of screen
-    // Y position: approximately 45% from top (adjust based on actual layout)
     let x = screen_width / 2;
-    let y = screen_height * 45 / 100;
+    let y = screen_height * 78 / 100;
     tap(device, x, y)
 }
 
@@ -724,15 +723,21 @@ pub fn cmd_tap_at(x: i32, y: i32, state: State<'_, AppState>) -> Result<String, 
 }
 
 /// Navigate to "我的" tab and then tap "新星用户榜"
-/// This is a combined action with a delay between steps
+/// Flow: openHome (reset state) -> tap 我的 -> tap 新星用户榜
 pub fn navigate_to_nova_list(device: &str, screen_width: i32, screen_height: i32) -> Result<()> {
-    // Step 1: Tap "我的" tab
+    // Step 1: Go to home page first to reset scroll state
+    open_route(device, "openHome")?;
+    
+    // Step 2: Wait for page to load (1.5 seconds)
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    
+    // Step 3: Tap "我的" tab
     tap_me_tab(device, screen_width, screen_height)?;
     
-    // Step 2: Wait for page to load (1 second)
+    // Step 4: Wait for page to load (1 second)
     std::thread::sleep(std::time::Duration::from_millis(1000));
     
-    // Step 3: Tap "新星用户榜"
+    // Step 5: Tap "新星用户榜"
     tap_nova_user_list(device, screen_width, screen_height)?;
     
     Ok(())
