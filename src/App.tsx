@@ -421,6 +421,7 @@ function MainApp() {
     }
   };
 
+  // Load saved data from localStorage with validation
   useEffect(() => {
     const saved = localStorage.getItem(TEMPLATES_KEY);
     const defaultName = localStorage.getItem(DEFAULT_TEMPLATE_KEY) || "";
@@ -430,29 +431,82 @@ function MainApp() {
     setDefaultTemplate(defaultName);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as Template[];
-        setTemplates(parsed);
-        if (defaultName) {
-          const t = parsed.find((t) => t.name === defaultName);
-          if (t) {
-            setItems(withIds(t.items));
-            setSelectedTemplate(defaultName);
+        const parsed = JSON.parse(saved);
+        // Validate parsed data is an array of templates
+        if (
+          Array.isArray(parsed) &&
+          parsed.every(
+            (t) =>
+              t &&
+              typeof t === "object" &&
+              typeof t.name === "string" &&
+              Array.isArray(t.items)
+          )
+        ) {
+          setTemplates(parsed as Template[]);
+          if (defaultName) {
+            const t = parsed.find((t: Template) => t.name === defaultName);
+            if (t) {
+              setItems(withIds(t.items));
+              setSelectedTemplate(defaultName);
+            }
           }
         }
-      } catch {}
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("Failed to parse templates from localStorage:", e);
+        }
+      }
     }
     if (savedRooms) {
       try {
-        setFavoriteRooms(JSON.parse(savedRooms));
-      } catch {}
+        const parsed = JSON.parse(savedRooms);
+        // Validate parsed data is an array of favorite rooms
+        if (
+          Array.isArray(parsed) &&
+          parsed.every(
+            (r) =>
+              r &&
+              typeof r === "object" &&
+              typeof r.id === "string" &&
+              typeof r.name === "string"
+          )
+        ) {
+          setFavoriteRooms(parsed);
+        }
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("Failed to parse favorite rooms from localStorage:", e);
+        }
+      }
     }
     if (savedUsers) {
       try {
-        setFavoriteUsers(JSON.parse(savedUsers));
-      } catch {}
+        const parsed = JSON.parse(savedUsers);
+        // Validate parsed data is an array of favorite users
+        if (
+          Array.isArray(parsed) &&
+          parsed.every(
+            (u) =>
+              u &&
+              typeof u === "object" &&
+              typeof u.id === "string" &&
+              typeof u.name === "string"
+          )
+        ) {
+          setFavoriteUsers(parsed);
+        }
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("Failed to parse favorite users from localStorage:", e);
+        }
+      }
     }
     if (savedSplit) {
-      setSidebarSplit(Number(savedSplit) || 50);
+      const split = Number(savedSplit);
+      if (!isNaN(split) && split >= 20 && split <= 80) {
+        setSidebarSplit(split);
+      }
     }
   }, []);
 
@@ -461,12 +515,10 @@ function MainApp() {
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(t));
   };
   const saveFavoriteRooms = (rooms: FavoriteRoom[]) => {
-    console.log("Saving favorite rooms:", rooms);
     setFavoriteRooms(rooms);
     localStorage.setItem(FAVORITE_ROOMS_KEY, JSON.stringify(rooms));
   };
   const addFavoriteRoom = () => {
-    console.log("addFavoriteRoom called, roomId:", roomId);
     if (!roomId.trim()) {
       messageApi.warning("请先输入房间 ID");
       return;
