@@ -51,6 +51,7 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
           cache-on-failure: true
+          key: ${{ matrix.platform }}-${{ matrix.args }}
 
       - name: Copy platform ADB (Unix)
         if: matrix.platform != 'windows-latest'
