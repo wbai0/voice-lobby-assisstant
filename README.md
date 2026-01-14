@@ -1,73 +1,73 @@
-# React + TypeScript + Vite
+# Pico Live Assistant
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+新人榜自动发消息助手 - 帮助主播自动向新人榜用户发送消息。
 
-Currently, two official plugins are available:
+## 功能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 连接 Android 模拟器 (MuMu, 雷电等)
+- 自动导航到新人榜页面
+- 批量发送文字消息和图片
+- OCR 检测当前页面状态
+- 自动更新
 
-## React Compiler
+## 安装
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Windows
 
-## Expanding the ESLint configuration
+1. 从 [Releases](https://github.com/wbai0/voice-lobby-assisstant/releases) 下载最新的 `.msi` 安装包
+2. 运行安装程序
+3. ADB 已内置，无需额外安装
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### macOS
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+1. 从 [Releases](https://github.com/wbai0/voice-lobby-assisstant/releases) 下载最新的 `.dmg` 文件
+2. 拖拽到 Applications 文件夹
+3. ADB 已内置，无需额外安装
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## 可选：安装 Tesseract OCR (仅 Windows)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Windows 用户如果想启用 OCR 功能（自动检测页面状态），需要安装 Tesseract：
+
+1. 下载 [Tesseract 安装包](https://github.com/UB-Mannheim/tesseract/wiki)
+2. 安装时选择 "Additional language data" → "Chinese (Simplified)"
+3. 安装到默认路径 `C:\Program Files\Tesseract-OCR`
+
+如果不安装 Tesseract，应用仍可正常使用，只是会跳过 OCR 检测。
+
+macOS 用户无需安装，使用系统内置的 Vision API。
+
+## 使用方法
+
+1. 启动 Android 模拟器
+2. 打开 Pico Live Assistant
+3. 选择模拟器并连接
+4. 点击 "去新星榜" 导航到新人榜
+5. 添加要发送的消息内容
+6. 设置发送数量和间隔
+7. 点击 "开始发送"
+
+## 开发
+
+### 环境要求
+
+- Node.js 18+
+- Rust 1.70+
+- pnpm
+
+### 本地开发
+
+```bash
+cd operations
+pnpm install
+pnpm tauri dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 构建
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm tauri build
 ```
+
+## License
+
+MIT

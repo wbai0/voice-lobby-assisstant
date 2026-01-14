@@ -1,6 +1,6 @@
 //! 跨平台 OCR 模块
-//! macOS: 使用 shortcuts 命令调用系统 OCR
-//! Windows: 使用 PowerShell 调用 Windows OCR API
+//! macOS: 使用 Vision API (Swift)
+//! Windows: 尝试使用 Tesseract CLI，如果不可用则跳过 OCR
 
 use crate::adb;
 use std::process::Command;
@@ -21,9 +21,36 @@ fn get_temp_path(filename: &str) -> PathBuf {
     path
 }
 
+/// 检查 Tesseract 是否可用
+#[cfg(target_os = "windows")]
+fn get_tesseract_path() -> Option<String> {
+    // 检查常见安装路径
+    let common_paths = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ];
+    
+    for path in common_paths {
+        if std::path::Path::new(path).exists() {
+            return Some(path.to_string());
+        }
+    }
+    
+    // 检查 PATH
+    if let Ok(output) = Command::new("where").arg("tesseract").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(path.lines().next().unwrap_or("").to_string());
+            }
+        }
+    }
+    
+    None
+}
+
 /// 对设备截图进行 OCR 识别
 pub fn ocr_screen(device: &str) -> OcrResult {
-    // 先截图保存到临时文件
     let adb_path = adb::get_adb_path_public();
     let temp_png = get_temp_path("pico_ocr_temp.png");
     
@@ -48,7 +75,6 @@ pub fn ocr_screen(device: &str) -> OcrResult {
         };
     }
 
-    // 直接保存原始数据（macOS 不需要 CRLF 转换）
     if let Err(e) = fs::write(&temp_png, &output.stdout) {
         return OcrResult {
             text: format!("保存截图失败: {}", e),
@@ -56,232 +82,74 @@ pub fn ocr_screen(device: &str) -> OcrResult {
         };
     }
 
-    // 调用平台特定的 OCR
     let result = platform_ocr(&temp_png);
-    
-    // 清理临时文件
     let _ = fs::remove_file(&temp_png);
-    
     result
 }
 
 /// 检测是否在新人榜页面（通过 OCR）
-/// 注意：Windows OCR 不稳定，此函数在 Windows 上直接返回 true（跳过检测）
 pub fn is_on_newbie_list(device: &str) -> bool {
-    // Windows OCR 不稳定，直接跳过检测，假设用户在正确页面
+    // Windows: 尝试 Tesseract，如果不可用则跳过检测
     #[cfg(target_os = "windows")]
     {
-        let _ = device; // suppress unused warning
-        return true;
+        if get_tesseract_path().is_none() {
+            // Tesseract 不可用，跳过检测
+            return true;
+        }
     }
     
-    #[cfg(not(target_os = "windows"))]
-    {
-        let result = ocr_screen(device);
-        if !result.success {
-            return false;
-        }
-
-        // 检测新人榜特征文字
-        let text = &result.text;
-        text.contains("新星用户萌新榜") && text.contains("刷新一下发现新用户")
+    let result = ocr_screen(device);
+    if !result.success {
+        // OCR 失败时，在 Windows 上返回 true（跳过检测），macOS 上返回 false
+        #[cfg(target_os = "windows")]
+        return true;
+        #[cfg(not(target_os = "windows"))]
+        return false;
     }
+
+    let text = &result.text;
+    text.contains("新星用户") || text.contains("萌新榜") || text.contains("刷新一下")
 }
 
 /// 在屏幕上查找指定文字的位置（返回中心坐标）
-/// 使用 OCR 识别文字并返回其边界框的中心点
-/// 注意：Windows OCR 不稳定，此函数在 Windows 上直接返回 None
 pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)> {
-    // Windows OCR 不稳定，直接跳过
+    // Windows: 如果 Tesseract 不可用，直接返回 None
     #[cfg(target_os = "windows")]
     {
-        let _ = (device, target_text); // suppress unused warnings
-        return None;
+        if get_tesseract_path().is_none() {
+            let _ = (device, target_text);
+            return None;
+        }
     }
     
-    #[cfg(not(target_os = "windows"))]
+    let adb_path = adb::get_adb_path_public();
+    let temp_png = get_temp_path("pico_ocr_find.png");
+    
+    let output = match Command::new(&adb_path)
+        .args(["-s", device, "shell", "screencap", "-p"])
+        .output()
     {
-        // 截图保存到临时文件
-        let adb_path = adb::get_adb_path_public();
-        let temp_png = get_temp_path("pico_ocr_find.png");
-        
-        let output = match Command::new(&adb_path)
-            .args(["-s", device, "shell", "screencap", "-p"])
-            .output()
-        {
-            Ok(o) => o,
-            Err(_) => return None,
-        };
+        Ok(o) => o,
+        Err(_) => return None,
+    };
 
-        if output.stdout.is_empty() {
-            return None;
-        }
-
-        if fs::write(&temp_png, &output.stdout).is_err() {
-            return None;
-        }
-
-        // 调用平台特定的 OCR 查找
-        let result = platform_find_text(&temp_png, target_text);
-        
-        // 清理临时文件
-        let _ = fs::remove_file(&temp_png);
-        
-        result
-    }
-}
-
-/// 平台特定的文字位置查找
-#[cfg(target_os = "macos")]
-fn platform_find_text(image_path: &PathBuf, target_text: &str) -> Option<(i32, i32)> {
-    // macOS: 使用 Swift 脚本调用 Vision API，返回边界框
-    let swift_script = format!(r#"
-import Vision
-import AppKit
-import Foundation
-
-let imagePath = CommandLine.arguments[1]
-let targetText = "{}"
-
-guard let image = NSImage(contentsOfFile: imagePath),
-      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {{
-    exit(1)
-}}
-
-let imageWidth = CGFloat(cgImage.width)
-let imageHeight = CGFloat(cgImage.height)
-
-let request = VNRecognizeTextRequest()
-request.recognitionLevel = .accurate
-request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en"]
-
-let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-try? handler.perform([request])
-
-guard let observations = request.results else {{
-    exit(1)
-}}
-
-for observation in observations {{
-    if let topCandidate = observation.topCandidates(1).first {{
-        if topCandidate.string.contains(targetText) {{
-            // Vision 坐标系：左下角为原点，需要转换
-            let box = observation.boundingBox
-            let centerX = Int((box.origin.x + box.width / 2) * imageWidth)
-            let centerY = Int((1.0 - box.origin.y - box.height / 2) * imageHeight)
-            print("\(centerX),\(centerY)")
-            exit(0)
-        }}
-    }}
-}}
-exit(1)
-"#, target_text);
-
-    let script_path = get_temp_path("pico_ocr_find.swift");
-    if fs::write(&script_path, &swift_script).is_err() {
+    if output.stdout.is_empty() {
         return None;
     }
 
-    let output = Command::new("swift")
-        .arg(&script_path)
-        .arg(image_path)
-        .output();
-
-    let _ = fs::remove_file(&script_path);
-
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            let parts: Vec<&str> = stdout.split(',').collect();
-            if parts.len() == 2 {
-                if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
-                    return Some((x, y));
-                }
-            }
-            None
-        }
-        _ => None,
+    if fs::write(&temp_png, &output.stdout).is_err() {
+        return None;
     }
+
+    let result = platform_find_text(&temp_png, target_text);
+    let _ = fs::remove_file(&temp_png);
+    result
 }
 
-#[cfg(target_os = "windows")]
-fn platform_find_text(image_path: &PathBuf, target_text: &str) -> Option<(i32, i32)> {
-    // Windows: 使用 PowerShell 调用 Windows OCR API 并返回边界框
-    let ps_script = format!(r#"
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
-$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime]
+// ============ macOS 实现 ============
 
-$imagePath = "{}"
-$targetText = "{}"
-
-function Await($WinRtTask, $ResultType) {{
-    $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {{ $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' }})[0]
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
-}}
-
-$fileStream = [System.IO.File]::OpenRead($imagePath)
-$randomAccessStream = [System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($fileStream)
-
-$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($randomAccessStream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$softwareBitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-
-$ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new("zh-Hans-CN"))
-if ($ocrEngine -eq $null) {{
-    $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-}}
-
-$ocrResult = Await ($ocrEngine.RecognizeAsync($softwareBitmap)) ([Windows.Media.Ocr.OcrResult])
-
-foreach ($line in $ocrResult.Lines) {{
-    foreach ($word in $line.Words) {{
-        if ($word.Text -like "*$targetText*") {{
-            $rect = $word.BoundingRect
-            $centerX = [int]($rect.X + $rect.Width / 2)
-            $centerY = [int]($rect.Y + $rect.Height / 2)
-            Write-Output "$centerX,$centerY"
-            $fileStream.Close()
-            exit 0
-        }}
-    }}
-}}
-
-$fileStream.Close()
-exit 1
-"#, image_path.display(), target_text);
-
-    let output = Command::new("powershell")
-        .args(["-ExecutionPolicy", "Bypass", "-Command", &ps_script])
-        .output();
-
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            let parts: Vec<&str> = stdout.split(',').collect();
-            if parts.len() == 2 {
-                if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
-                    return Some((x, y));
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn platform_find_text(_image_path: &PathBuf, _target_text: &str) -> Option<(i32, i32)> {
-    None
-}
-
-/// 平台特定的 OCR 实现
 #[cfg(target_os = "macos")]
 fn platform_ocr(image_path: &PathBuf) -> OcrResult {
-    // macOS: 使用 Swift 脚本调用 Vision API
-    // 创建一个临时 Swift 脚本
     let swift_script = r#"
 import Vision
 import AppKit
@@ -321,13 +189,11 @@ for observation in observations {
         };
     }
 
-    // 执行 Swift 脚本
     let output = Command::new("swift")
         .arg(&script_path)
         .arg(image_path)
         .output();
 
-    // 清理脚本
     let _ = fs::remove_file(&script_path);
 
     match output {
@@ -354,77 +220,168 @@ for observation in observations {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn platform_find_text(image_path: &PathBuf, target_text: &str) -> Option<(i32, i32)> {
+    let swift_script = format!(r#"
+import Vision
+import AppKit
+import Foundation
+
+let imagePath = CommandLine.arguments[1]
+let targetText = "{}"
+
+guard let image = NSImage(contentsOfFile: imagePath),
+      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {{
+    exit(1)
+}}
+
+let imageWidth = CGFloat(cgImage.width)
+let imageHeight = CGFloat(cgImage.height)
+
+let request = VNRecognizeTextRequest()
+request.recognitionLevel = .accurate
+request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en"]
+
+let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+try? handler.perform([request])
+
+guard let observations = request.results else {{
+    exit(1)
+}}
+
+for observation in observations {{
+    if let topCandidate = observation.topCandidates(1).first {{
+        if topCandidate.string.contains(targetText) {{
+            let box = observation.boundingBox
+            let centerX = Int((box.origin.x + box.width / 2) * imageWidth)
+            let centerY = Int((1.0 - box.origin.y - box.height / 2) * imageHeight)
+            print("\(centerX),\(centerY)")
+            exit(0)
+        }}
+    }}
+}}
+exit(1)
+"#, target_text);
+
+    let script_path = get_temp_path("pico_ocr_find.swift");
+    if fs::write(&script_path, &swift_script).is_err() {
+        return None;
+    }
+
+    let output = Command::new("swift")
+        .arg(&script_path)
+        .arg(image_path)
+        .output();
+
+    let _ = fs::remove_file(&script_path);
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            let parts: Vec<&str> = stdout.split(',').collect();
+            if parts.len() == 2 {
+                if let (Ok(x), Ok(y)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                    return Some((x, y));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+// ============ Windows 实现 (Tesseract CLI) ============
+
 #[cfg(target_os = "windows")]
 fn platform_ocr(image_path: &PathBuf) -> OcrResult {
-    // Windows: 使用 PowerShell 调用 Windows OCR API
-    let ps_script = format!(r#"
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
-$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType = WindowsRuntime]
+    let tesseract = match get_tesseract_path() {
+        Some(p) => p,
+        None => {
+            return OcrResult {
+                text: "Tesseract 未安装".to_string(),
+                success: false,
+            };
+        }
+    };
 
-$imagePath = "{}"
-
-# 异步方法转同步的辅助函数
-function Await($WinRtTask, $ResultType) {{
-    $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {{ $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' }})[0]
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($WinRtTask))
-    $netTask.Wait(-1) | Out-Null
-    $netTask.Result
-}}
-
-# 打开图片文件
-$fileStream = [System.IO.File]::OpenRead($imagePath)
-$randomAccessStream = [System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($fileStream)
-
-# 解码图片
-$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($randomAccessStream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$softwareBitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-
-# 创建 OCR 引擎（使用中文）
-$ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new("zh-Hans-CN"))
-if ($ocrEngine -eq $null) {{
-    $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-}}
-
-# 执行 OCR
-$ocrResult = Await ($ocrEngine.RecognizeAsync($softwareBitmap)) ([Windows.Media.Ocr.OcrResult])
-
-# 输出结果
-foreach ($line in $ocrResult.Lines) {{
-    Write-Output $line.Text
-}}
-
-$fileStream.Close()
-"#, image_path.display());
-
-    let output = Command::new("powershell")
-        .args(["-ExecutionPolicy", "Bypass", "-Command", &ps_script])
+    // 使用 Tesseract 进行 OCR
+    let output = Command::new(&tesseract)
+        .args([
+            image_path.to_str().unwrap_or(""),
+            "stdout",
+            "-l", "chi_sim+eng",
+            "--psm", "3",
+        ])
         .output();
 
     match output {
         Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-            
-            if !o.status.success() {
+            if o.status.success() {
                 OcrResult {
-                    text: format!("OCR 失败: {}", stderr),
-                    success: false,
+                    text: String::from_utf8_lossy(&o.stdout).to_string(),
+                    success: true,
                 }
             } else {
                 OcrResult {
-                    text: stdout,
-                    success: true,
+                    text: String::from_utf8_lossy(&o.stderr).to_string(),
+                    success: false,
                 }
             }
         }
         Err(e) => OcrResult {
-            text: format!("执行 OCR 失败: {}", e),
+            text: format!("执行 Tesseract 失败: {}", e),
             success: false,
         },
     }
 }
+
+#[cfg(target_os = "windows")]
+fn platform_find_text(image_path: &PathBuf, target_text: &str) -> Option<(i32, i32)> {
+    let tesseract = get_tesseract_path()?;
+
+    // 使用 Tesseract 的 TSV 输出获取文字位置
+    let output = Command::new(&tesseract)
+        .args([
+            image_path.to_str().unwrap_or(""),
+            "stdout",
+            "-l", "chi_sim+eng",
+            "--psm", "3",
+            "tsv",
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let tsv = String::from_utf8_lossy(&output.stdout);
+    
+    // 解析 TSV 输出，查找目标文字
+    for line in tsv.lines().skip(1) {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() >= 12 {
+            let text = cols[11];
+            if text.contains(target_text) {
+                // 列: level, page_num, block_num, par_num, line_num, word_num, left, top, width, height, conf, text
+                if let (Ok(left), Ok(top), Ok(width), Ok(height)) = (
+                    cols[6].parse::<i32>(),
+                    cols[7].parse::<i32>(),
+                    cols[8].parse::<i32>(),
+                    cols[9].parse::<i32>(),
+                ) {
+                    let center_x = left + width / 2;
+                    let center_y = top + height / 2;
+                    return Some((center_x, center_y));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+// ============ 其他平台 ============
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn platform_ocr(_image_path: &PathBuf) -> OcrResult {
@@ -432,4 +389,9 @@ fn platform_ocr(_image_path: &PathBuf) -> OcrResult {
         text: "不支持的平台".to_string(),
         success: false,
     }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn platform_find_text(_image_path: &PathBuf, _target_text: &str) -> Option<(i32, i32)> {
+    None
 }
