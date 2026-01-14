@@ -1122,7 +1122,7 @@ function MainApp() {
                     borderTop: "1px solid #f0f0f0",
                   }}
                 >
-                  <Text type="secondary">版本 1.0.5</Text>
+                  <Text type="secondary">版本 1.0.7</Text>
                   {updater.available ? (
                     <Button
                       size="small"
