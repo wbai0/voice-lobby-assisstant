@@ -24,6 +24,39 @@ pub struct AdbInfo {
     pub is_custom: bool,
 }
 
+/// Get bundled ADB path based on current executable location
+fn get_bundled_adb_path() -> Option<String> {
+    let exe_path = std::env::current_exe().ok()?;
+    
+    #[cfg(target_os = "macos")]
+    {
+        // On macOS: App.app/Contents/MacOS/app -> App.app/Contents/Resources/adb/adb
+        let resources_dir = exe_path
+            .parent()? // MacOS
+            .parent()? // Contents
+            .join("Resources")
+            .join("adb")
+            .join("adb");
+        if resources_dir.exists() {
+            return Some(resources_dir.to_string_lossy().to_string());
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows: app.exe -> adb/adb.exe (same directory)
+        let adb_path = exe_path
+            .parent()?
+            .join("adb")
+            .join("adb.exe");
+        if adb_path.exists() {
+            return Some(adb_path.to_string_lossy().to_string());
+        }
+    }
+    
+    None
+}
+
 /// Get ADB path - auto detect from MuMu installation or common locations
 fn get_adb_path() -> String {
     // Check if user has set a custom path
@@ -31,6 +64,11 @@ fn get_adb_path() -> String {
         if let Some(ref path) = *guard {
             return path.clone();
         }
+    }
+    
+    // Try bundled ADB first
+    if let Some(bundled) = get_bundled_adb_path() {
+        return bundled;
     }
     
     detect_adb_path()
