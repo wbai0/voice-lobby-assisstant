@@ -13,10 +13,15 @@ Before tagging a release, ensure ALL version numbers are updated:
 
 ## Release Steps
 
-1. Update version in `src-tauri/tauri.conf.json`
-2. Update version display in `src/App.tsx`
-3. Commit with message: `release: bump version to X.Y.Z`
-4. Create and push tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+1. Develop and push to `main` (builds run to warm cache, no release created)
+2. When ready to release:
+   - Update version in `src-tauri/tauri.conf.json`
+   - Update version display in `src/App.tsx`
+   - Commit with message: `release: bump version to X.Y.Z`
+   - Push to main
+   - Create and push tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+
+**Important**: Don't create tags for every small change. Tags trigger full releases. Regular commits to `main` build the cache without creating releases.
 
 ## Notes
 
