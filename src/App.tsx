@@ -1106,6 +1106,37 @@ function MainApp() {
                     设置
                   </Button>
                 </Space.Compact>
+                <Flex
+                  justify="space-between"
+                  align="center"
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 8,
+                    borderTop: "1px solid #f0f0f0",
+                  }}
+                >
+                  <Text type="secondary">版本 1.0.3</Text>
+                  {updater.available ? (
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<CloudDownloadOutlined />}
+                      onClick={() => updater.downloadAndInstall()}
+                      loading={updater.downloading}
+                    >
+                      {updater.downloading
+                        ? `${updater.progress}%`
+                        : `更新到 ${updater.version}`}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="small"
+                      onClick={() => updater.checkForUpdates()}
+                    >
+                      检查更新
+                    </Button>
+                  )}
+                </Flex>
               </Flex>
             </Card>
           )}
