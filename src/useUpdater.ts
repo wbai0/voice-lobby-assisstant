@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { check } from "@tauri-apps/plugin-updater";
+import { useEffect, useState, useRef } from "react";
+import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export interface UpdateInfo {
@@ -19,10 +19,15 @@ export function useUpdater() {
     progress: 0,
   });
 
+  // Cache the update object to avoid duplicate check() calls
+  const updateRef = useRef<Update | null>(null);
+
   const checkForUpdates = async (): Promise<boolean> => {
     setUpdateInfo((prev) => ({ ...prev, checking: true, error: undefined }));
     try {
       const update = await check();
+      updateRef.current = update;
+
       if (update) {
         setUpdateInfo({
           available: true,
@@ -41,7 +46,9 @@ export function useUpdater() {
         return false;
       }
     } catch (error) {
-      console.error("Failed to check for updates:", error);
+      if (import.meta.env.DEV) {
+        console.error("Failed to check for updates:", error);
+      }
       setUpdateInfo((prev) => ({
         ...prev,
         checking: false,
@@ -53,7 +60,8 @@ export function useUpdater() {
 
   const downloadAndInstall = async () => {
     try {
-      const update = await check();
+      // Use cached update object if available, otherwise check again
+      const update = updateRef.current ?? (await check());
       if (!update) return;
 
       setUpdateInfo((prev) => ({ ...prev, downloading: true, progress: 0 }));
@@ -81,7 +89,9 @@ export function useUpdater() {
       // Relaunch the app after update
       await relaunch();
     } catch (error) {
-      console.error("Failed to download/install update:", error);
+      if (import.meta.env.DEV) {
+        console.error("Failed to download/install update:", error);
+      }
       setUpdateInfo((prev) => ({
         ...prev,
         downloading: false,

@@ -1,8 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// Detect if running in Tauri - always return true and let invoke handle errors
+// Detect if running in Tauri environment
 const isTauri = (): boolean => {
-  return true;
+  return typeof window !== "undefined" && "__TAURI__" in window;
+};
+
+// Conditional logger - only logs in development
+const devLog = (...args: unknown[]) => {
+  if (import.meta.env.DEV) {
+    devLog(...args);
+  }
 };
 
 // Types
@@ -217,7 +224,7 @@ export const autoMessageApi = {
     maxUsers: number,
     delay: number
   ): Promise<{ data: { success: boolean; message: string } }> => {
-    console.log("autoMessageApi.start called, isTauri:", isTauri());
+    devLog("autoMessageApi.start called, isTauri:", isTauri());
     if (isTauri()) {
       const message = await invoke<string>("cmd_start", {
         items,
@@ -270,7 +277,7 @@ export const autoMessageApi = {
   testInChat: async (
     items: ContentItem[]
   ): Promise<{ data: { success: boolean; message: string } }> => {
-    console.log(
+    devLog(
       "autoMessageApi.testInChat called, isTauri:",
       isTauri(),
       "items:",
@@ -278,18 +285,18 @@ export const autoMessageApi = {
     );
     if (isTauri()) {
       try {
-        console.log("Invoking cmd_test_in_chat...");
+        devLog("Invoking cmd_test_in_chat...");
         const message = await invoke<string>("cmd_test_in_chat", {
           items,
         });
-        console.log("cmd_test_in_chat result:", message);
+        devLog("cmd_test_in_chat result:", message);
         return { data: { success: true, message } };
       } catch (e) {
         console.error("cmd_test_in_chat error:", e);
         throw e;
       }
     }
-    console.log("Not in Tauri, returning false");
+    devLog("Not in Tauri, returning false");
     return { data: { success: false, message: "Not in Tauri" } };
   },
 };
