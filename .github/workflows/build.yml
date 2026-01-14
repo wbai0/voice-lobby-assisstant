@@ -70,6 +70,7 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,3 +83,78 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload artifacts for publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.platform }}-${{ strategy.job-index }}
+          path: |
+            src-tauri/target/**/release/bundle/**/*.dmg
+            src-tauri/target/**/release/bundle/**/*.app.tar.gz
+            src-tauri/target/**/release/bundle/**/*.app.tar.gz.sig
+            src-tauri/target/**/release/bundle/**/*.exe
+            src-tauri/target/**/release/bundle/**/*.msi
+            src-tauri/target/**/release/bundle/**/*.msi.sig
+          if-no-files-found: ignore
+
+  publish-to-public:
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Create latest.json for updater
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "See the assets to download this version and install.",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "$(cat artifacts/**/Pico*.app.tar.gz.sig 2>/dev/null | head -1 || echo '')",
+                "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz"
+              },
+              "darwin-x86_64": {
+                "signature": "$(cat artifacts/**/Pico*x64*.app.tar.gz.sig 2>/dev/null | head -1 || echo '')",
+                "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz"
+              },
+              "windows-x86_64": {
+                "signature": "$(cat artifacts/**/Pico*.msi.sig 2>/dev/null | head -1 || echo '')",
+                "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64-setup.exe"
+              }
+            }
+          }
+          EOF
+          cat latest.json
+
+      - name: List artifacts
+        run: find artifacts -type f -name "Pico*" | head -20
+
+      - name: Publish to public releases repo
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: wbai0/pico-releases
+          token: ${{ secrets.RELEASE_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: "Pico Live Assistant ${{ github.ref_name }}"
+          body: "See the assets to download this version and install."
+          files: |
+            latest.json
+            artifacts/**/*.dmg
+            artifacts/**/*.app.tar.gz
+            artifacts/**/*.app.tar.gz.sig
+            artifacts/**/*.exe
+            artifacts/**/*.msi
+            artifacts/**/*.msi.sig
