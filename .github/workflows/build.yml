@@ -16,12 +16,15 @@ jobs:
           - platform: "macos-latest"
             args: "--target aarch64-apple-darwin"
             adb_source: "adb-macos"
+            cache_key: "macos-arm64"
           - platform: "macos-latest"
             args: "--target x86_64-apple-darwin"
             adb_source: "adb-macos"
+            cache_key: "macos-x64"
           - platform: "windows-latest"
             args: ""
             adb_source: "adb-windows"
+            cache_key: "windows-x64"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -51,7 +54,7 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
           cache-on-failure: true
-          key: ${{ matrix.platform }}-${{ matrix.args }}
+          shared-key: ${{ matrix.cache_key }}
 
       - name: Copy platform ADB (Unix)
         if: matrix.platform != 'windows-latest'

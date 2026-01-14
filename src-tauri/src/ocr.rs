@@ -220,12 +220,6 @@ pub fn is_on_newbie_list_debug(device: &str) -> (bool, String) {
     (is_match, result.text.clone())
 }
 
-/// 检测是否在新人榜页面（通过 OCR）
-pub fn is_on_newbie_list(device: &str) -> bool {
-    let (is_match, _) = is_on_newbie_list_debug(device);
-    is_match
-}
-
 /// 在屏幕上查找指定文字的位置（返回中心坐标）
 /// 使用 TSV 输出获取文字边界框
 pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)> {
