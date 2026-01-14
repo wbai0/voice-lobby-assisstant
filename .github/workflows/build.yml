@@ -49,8 +49,8 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "src-tauri -> target"
-          shared-key: ${{ matrix.platform }}-${{ matrix.args }}
+          workspaces: "./src-tauri -> target"
+          cache-on-failure: true
 
       - name: Copy platform ADB (Unix)
         if: matrix.platform != 'windows-latest'
