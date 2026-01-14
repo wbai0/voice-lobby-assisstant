@@ -117,7 +117,7 @@ fn scale_coords(base_x: i32, base_y: i32, screen_size: (i32, i32)) -> (i32, i32)
     ((base_x as f64 * scale_x) as i32, (base_y as f64 * scale_y) as i32)
 }
 
-/// Try to find and click send button using UIAutomator (with caching)
+/// Try to find send button using OCR (with caching)
 fn click_send_button_smart(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
     // Check cache first
     if let Ok(guard) = CACHED_SEND_BUTTON.lock() {
@@ -127,70 +127,23 @@ fn click_send_button_smart(device: &str, screen_size: (i32, i32), logger: &BgLog
         }
     }
     
-    logger.log("首次查找发送按钮...");
+    logger.log("首次用OCR查找发送按钮...");
     
-    let adb = adb::get_adb_path_public();
-    
-    // Dump UI hierarchy
-    let _ = std::process::Command::new(&adb)
-        .args(["-s", device, "shell", "uiautomator", "dump", "/sdcard/ui.xml"])
-        .output();
-    
-    let output = match std::process::Command::new(&adb)
-        .args(["-s", device, "shell", "cat", "/sdcard/ui.xml"])
-        .output() 
-    {
-        Ok(o) => o,
-        Err(_) => {
-            // Fallback to coordinate
-            let (send_x, send_y) = scale_coords(2000, 3544, screen_size);
-            let _ = adb::tap(device, send_x, send_y);
-            return true;
+    // Use OCR to find "发送" text
+    if let Some((x, y)) = crate::ocr::find_text_position(device, "发送") {
+        // Cache the coordinates
+        if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
+            *guard = Some((x, y));
+            logger.log(&format!("发送按钮坐标: ({}, {})", x, y));
         }
-    };
-    
-    let xml = String::from_utf8_lossy(&output.stdout);
-    
-    // Look for send button - common patterns: "发送", "Send", or button with send-like resource-id
-    for segment in xml.split('<') {
-        let is_send = segment.contains("text=\"发送\"") || 
-                      segment.contains("text=\"Send\"") ||
-                      segment.contains("content-desc=\"发送\"") ||
-                      (segment.contains("resource-id") && segment.contains("send"));
-        
-        if is_send {
-            if let Some(bounds_start) = segment.find("bounds=\"[") {
-                let bounds_str = &segment[bounds_start + 8..];
-                if let Some(bounds_end) = bounds_str.find('"') {
-                    let bounds = &bounds_str[..bounds_end];
-                    let coords: Vec<i32> = bounds
-                        .replace(['[', ']', ','], " ")
-                        .split_whitespace()
-                        .filter_map(|s| s.parse().ok())
-                        .collect();
-                    if coords.len() >= 4 {
-                        let cx = (coords[0] + coords[2]) / 2;
-                        let cy = (coords[1] + coords[3]) / 2;
-                        
-                        // Cache the coordinates
-                        if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
-                            *guard = Some((cx, cy));
-                            logger.log(&format!("发送按钮坐标: ({}, {})", cx, cy));
-                        }
-                        
-                        let _ = adb::tap(device, cx, cy);
-                        return true;
-                    }
-                }
-            }
-        }
+        let _ = adb::tap(device, x, y);
+        return true;
     }
     
-    // Fallback to coordinate if not found
-    logger.log("未找到发送按钮，使用默认坐标");
+    // Fallback to default coordinate
+    logger.log("OCR未找到发送按钮，使用默认坐标");
     let (send_x, send_y) = scale_coords(2000, 3544, screen_size);
     
-    // Cache the fallback coordinates too
     if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
         *guard = Some((send_x, send_y));
     }
@@ -199,8 +152,9 @@ fn click_send_button_smart(device: &str, screen_size: (i32, i32), logger: &BgLog
     true
 }
 
-/// Try to find and click input box using UIAutomator (with caching)
-fn click_input_box_smart(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
+/// Click input box - use default coordinates (input box is usually at bottom center)
+/// We don't use OCR for input box since it might not have visible text
+fn click_input_box(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
     // Check cache first
     if let Ok(guard) = CACHED_INPUT_BOX.lock() {
         if let Some((x, y)) = *guard {
@@ -209,71 +163,13 @@ fn click_input_box_smart(device: &str, screen_size: (i32, i32), logger: &BgLogge
         }
     }
     
-    logger.log("首次查找输入框...");
+    // For input box, just use scaled coordinates
+    // Input box is typically at bottom center, left of send button
+    let (input_x, input_y) = scale_coords(540, 3544, screen_size);
     
-    let adb = adb::get_adb_path_public();
-    
-    // Dump UI hierarchy
-    let _ = std::process::Command::new(&adb)
-        .args(["-s", device, "shell", "uiautomator", "dump", "/sdcard/ui.xml"])
-        .output();
-    
-    let output = match std::process::Command::new(&adb)
-        .args(["-s", device, "shell", "cat", "/sdcard/ui.xml"])
-        .output() 
-    {
-        Ok(o) => o,
-        Err(_) => {
-            let (input_x, input_y) = scale_coords(928, 3544, screen_size);
-            let _ = adb::tap(device, input_x, input_y);
-            return true;
-        }
-    };
-    
-    let xml = String::from_utf8_lossy(&output.stdout);
-    
-    // Look for input box - EditText or input field
-    for segment in xml.split('<') {
-        let is_input = segment.contains("class=\"android.widget.EditText\"") ||
-                       segment.contains("content-desc=\"输入\"") ||
-                       segment.contains("hint=") && segment.contains("输入") ||
-                       (segment.contains("resource-id") && segment.contains("input"));
-        
-        if is_input {
-            if let Some(bounds_start) = segment.find("bounds=\"[") {
-                let bounds_str = &segment[bounds_start + 8..];
-                if let Some(bounds_end) = bounds_str.find('"') {
-                    let bounds = &bounds_str[..bounds_end];
-                    let coords: Vec<i32> = bounds
-                        .replace(['[', ']', ','], " ")
-                        .split_whitespace()
-                        .filter_map(|s| s.parse().ok())
-                        .collect();
-                    if coords.len() >= 4 {
-                        let cx = (coords[0] + coords[2]) / 2;
-                        let cy = (coords[1] + coords[3]) / 2;
-                        
-                        // Cache the coordinates
-                        if let Ok(mut guard) = CACHED_INPUT_BOX.lock() {
-                            *guard = Some((cx, cy));
-                            logger.log(&format!("输入框坐标: ({}, {})", cx, cy));
-                        }
-                        
-                        let _ = adb::tap(device, cx, cy);
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    
-    // Fallback to coordinate if not found
-    logger.log("未找到输入框，使用默认坐标");
-    let (input_x, input_y) = scale_coords(928, 3544, screen_size);
-    
-    // Cache the fallback coordinates too
     if let Ok(mut guard) = CACHED_INPUT_BOX.lock() {
         *guard = Some((input_x, input_y));
+        logger.log(&format!("输入框坐标: ({}, {})", input_x, input_y));
     }
     
     let _ = adb::tap(device, input_x, input_y);
@@ -297,7 +193,7 @@ fn send_item(device: &str, item: &ContentItem, logger: &BgLogger, screen_size: (
             if content.trim().is_empty() { return; }
             
             // 智能点击输入框
-            click_input_box_smart(device, screen_size, logger);
+            click_input_box(device, screen_size, logger);
             thread::sleep(Duration::from_millis(400));
             
             // 输入文字
