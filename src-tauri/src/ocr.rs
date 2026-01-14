@@ -206,6 +206,7 @@ pub fn ocr_screen(device: &str) -> OcrResult {
 pub fn is_on_newbie_list_debug(device: &str) -> (bool, String) {
     let result = ocr_screen(device);
     if !result.success {
+        eprintln!("[OCR] 新星榜检测失败: {}", result.text);
         return (false, result.text);
     }
 
@@ -216,6 +217,8 @@ pub fn is_on_newbie_list_debug(device: &str) -> (bool, String) {
         || text.contains("用户榜")
         || text.contains("刷新")
         || text.contains("发现新用户");
+    
+    eprintln!("[OCR] 新星榜检测: {} - 文字: {}", if is_match { "匹配" } else { "不匹配" }, text.chars().take(100).collect::<String>());
     
     (is_match, result.text.clone())
 }
@@ -233,6 +236,7 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
         .ok()?;
 
     if output.stdout.is_empty() {
+        eprintln!("[OCR] Screenshot failed - empty output");
         return None;
     }
 
@@ -256,24 +260,82 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
         // 获取 TSV 输出（包含边界框信息）
         let tsv = api.get_tsv_text(0).ok()?;
         
-        // 解析 TSV 查找目标文字
+        // 收集所有词及其位置
+        let mut words: Vec<(String, i32, i32, i32, i32)> = Vec::new();
         for line in tsv.lines().skip(1) {
             let cols: Vec<&str> = line.split('\t').collect();
-            if cols.len() >= 12 {
-                let text = cols[11];
-                if text.contains(target_text) {
-                    // 列: level, page_num, block_num, par_num, line_num, word_num, left, top, width, height, conf, text
-                    let left: i32 = cols[6].parse().ok()?;
-                    let top: i32 = cols[7].parse().ok()?;
-                    let w: i32 = cols[8].parse().ok()?;
-                    let h: i32 = cols[9].parse().ok()?;
-                    
-                    let center_x = left + w / 2;
-                    let center_y = top + h / 2;
-                    return Some((center_x, center_y));
+            if cols.len() >= 12 && !cols[11].trim().is_empty() {
+                if let (Ok(left), Ok(top), Ok(w), Ok(h)) = (
+                    cols[6].parse::<i32>(),
+                    cols[7].parse::<i32>(),
+                    cols[8].parse::<i32>(),
+                    cols[9].parse::<i32>(),
+                ) {
+                    words.push((cols[11].to_string(), left, top, w, h));
                 }
             }
         }
+        
+        eprintln!("[OCR] 查找 '{}' - 识别到 {} 个词", target_text, words.len());
+        
+        // 首先尝试精确匹配
+        for (text, left, top, w, h) in &words {
+            if text.contains(target_text) {
+                let center_x = left + w / 2;
+                let center_y = top + h / 2;
+                eprintln!("[OCR] 精确匹配 '{}' 在 ({}, {})", target_text, center_x, center_y);
+                return Some((center_x, center_y));
+            }
+        }
+        
+        // 如果目标是多字符，尝试查找相邻的字符组合
+        let target_chars: Vec<char> = target_text.chars().collect();
+        if target_chars.len() > 1 {
+            for i in 0..words.len() {
+                // 检查是否从位置i开始能匹配目标的所有字符
+                let mut matched = true;
+                let mut last_right = 0i32;
+                let mut first_match: Option<(i32, i32, i32, i32)> = None;
+                
+                for (j, target_char) in target_chars.iter().enumerate() {
+                    if i + j >= words.len() {
+                        matched = false;
+                        break;
+                    }
+                    let (ref word, left, top, w, h) = words[i + j];
+                    
+                    // 检查这个词是否包含目标字符
+                    if !word.contains(*target_char) {
+                        matched = false;
+                        break;
+                    }
+                    
+                    // 检查是否相邻（水平距离小于50像素）
+                    if j > 0 && (left - last_right).abs() > 50 {
+                        matched = false;
+                        break;
+                    }
+                    
+                    if first_match.is_none() {
+                        first_match = Some((left, top, w, h));
+                    }
+                    last_right = left + w;
+                }
+                
+                if matched {
+                    if let Some((left, top, w, h)) = first_match {
+                        // 使用第一个匹配字符的位置，但考虑整个词组的宽度
+                        let total_width = last_right - left;
+                        let center_x = left + total_width / 2;
+                        let center_y = top + h / 2;
+                        eprintln!("[OCR] 组合匹配 '{}' 在 ({}, {})", target_text, center_x, center_y);
+                        return Some((center_x, center_y));
+                    }
+                }
+            }
+        }
+        
+        eprintln!("[OCR] 未找到 '{}'", target_text);
         None
     });
     
