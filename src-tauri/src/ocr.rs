@@ -106,7 +106,7 @@ fn get_tessdata_dir() -> PathBuf {
     PathBuf::from("tessdata")
 }
 
-/// 确保 chi_sim.traineddata 存在，如果不存在则下载
+/// 检查 chi_sim.traineddata 是否存在
 fn ensure_chi_sim_traineddata(tessdata_dir: &PathBuf) {
     let chi_sim_path = tessdata_dir.join("chi_sim.traineddata");
     
@@ -117,47 +117,12 @@ fn ensure_chi_sim_traineddata(tessdata_dir: &PathBuf) {
                 eprintln!("[OCR] chi_sim.traineddata 已存在: {:?} ({} bytes)", chi_sim_path, metadata.len());
                 return;
             } else {
-                eprintln!("[OCR] chi_sim.traineddata 文件太小，重新下载");
-                let _ = fs::remove_file(&chi_sim_path);
+                eprintln!("[OCR] ⚠ chi_sim.traineddata 文件太小，可能损坏");
             }
         }
-    }
-    
-    eprintln!("[OCR] ⚠ chi_sim.traineddata 不存在");
-    eprintln!("[OCR] 提示：国内用户可能无法自动下载训练数据");
-    eprintln!("[OCR] 请手动下载并放置到: {:?}", tessdata_dir);
-    eprintln!("[OCR] 下载地址: https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata");
-    
-    // 创建目录
-    if let Err(e) = fs::create_dir_all(tessdata_dir) {
-        eprintln!("[OCR] 创建tessdata目录失败: {:?}", e);
-        return;
-    }
-    
-    // 尝试下载（可能失败）
-    eprintln!("[OCR] 尝试下载 chi_sim.traineddata...");
-    let url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata";
-    
-    match create_command("curl")
-        .args(["-L", "-o", chi_sim_path.to_str().unwrap_or(""), url, "--connect-timeout", "30"])
-        .output()
-    {
-        Ok(output) => {
-            if output.status.success() {
-                if let Ok(metadata) = fs::metadata(&chi_sim_path) {
-                    if metadata.len() > 1_000_000 {
-                        eprintln!("[OCR] ✓ chi_sim.traineddata 下载成功 ({} bytes)", metadata.len());
-                    } else {
-                        eprintln!("[OCR] ✗ 下载的文件太小，可能下载失败");
-                    }
-                }
-            } else {
-                eprintln!("[OCR] ✗ 下载失败（可能是网络问题）");
-            }
-        }
-        Err(e) => {
-            eprintln!("[OCR] ✗ 执行curl失败: {:?}", e);
-        }
+    } else {
+        eprintln!("[OCR] ⚠ chi_sim.traineddata 不存在: {:?}", chi_sim_path);
+        eprintln!("[OCR] 请确保应用正确安装，tessdata 应该已打包在应用内");
     }
 }
 
