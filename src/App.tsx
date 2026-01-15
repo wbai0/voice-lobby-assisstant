@@ -337,8 +337,14 @@ function MainApp() {
   const [messageApi, contextHolder] = message.useMessage();
   const [notificationApi, notificationContextHolder] =
     notification.useNotification();
-  const { profile, signOut, canUseFeature, recordUsage, getRemainingUsage } =
-    useAuth();
+  const {
+    profile,
+    signOut,
+    canUseFeature,
+    recordUsage,
+    getRemainingUsage,
+    refreshProfile,
+  } = useAuth();
   const updater = useUpdater();
   const [selectedPort, setSelectedPort] = useState<number | null>(null);
   const [items, setItems] = useState<ContentItemWithId[]>(() =>
@@ -691,11 +697,11 @@ function MainApp() {
       const { allowed, reason } = canUseFeature();
       if (!allowed) throw new Error(reason);
       const { success, error } = await recordUsage();
-      if (!success) {
-        // Log error but don't block - usage tracking failure shouldn't prevent feature use
-        if (import.meta.env.DEV) {
-          console.warn("Failed to record usage:", error);
-        }
+      if (success) {
+        // Refresh profile to sync with server state (handles concurrent device usage)
+        await refreshProfile();
+      } else if (import.meta.env.DEV) {
+        console.warn("Failed to record usage:", error);
       }
       return autoMessageApi.start(
         items.map(({ id, ...rest }) => rest),
