@@ -458,6 +458,12 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
         
         eprintln!("[OCR] 查找 '{}' - 识别到 {} 个词", target_text, words.len());
         
+        // 调试：打印所有识别到的词
+        if words.len() > 0 {
+            eprintln!("[OCR] 识别到的词: {:?}", 
+                words.iter().take(20).map(|(w, _, _, _, _)| w.as_str()).collect::<Vec<_>>());
+        }
+        
         // 首先尝试精确匹配
         for (text, left, top, w, h) in &words {
             if text.contains(target_text) {
@@ -465,6 +471,27 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
                 let center_y = top + h / 2;
                 eprintln!("[OCR] 精确匹配 '{}' 在 ({}, {})", target_text, center_x, center_y);
                 return Some((center_x, center_y));
+            }
+        }
+        
+        // 尝试模糊匹配（处理OCR误识别）
+        let fuzzy_matches = [
+            ("发送", vec!["发送", "發送", "发 送", "发逸", "发这"]),
+        ];
+        
+        for (original, variants) in &fuzzy_matches {
+            if target_text == *original {
+                for variant in variants {
+                    for (text, left, top, w, h) in &words {
+                        if text.contains(variant) {
+                            let center_x = left + w / 2;
+                            let center_y = top + h / 2;
+                            eprintln!("[OCR] 模糊匹配 '{}' (识别为 '{}') 在 ({}, {})", 
+                                target_text, text, center_x, center_y);
+                            return Some((center_x, center_y));
+                        }
+                    }
+                }
             }
         }
         
