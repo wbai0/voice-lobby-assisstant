@@ -101,6 +101,7 @@ This generates:
 - Check that `pico-releases` repo is public
 - Verify `latest.json` exists in the latest release
 - Check the endpoint URL in `tauri.conf.json`
+- **国内用户**: GitHub 可能被墙，自动更新功能可能无法使用，请手动下载新版本
 
 ### App shows "damaged and can't be opened" on macOS
 
@@ -121,3 +122,21 @@ This generates:
 - Fixed by using `--no-bundle` flag for cache warming builds
 - This compiles Rust code (warming the cache) but skips bundling/signing
 - Only tag builds create signed bundles
+
+---
+
+## Bundled Resources
+
+The following resources are bundled with the app and do NOT require network access:
+
+### ADB (Android Debug Bridge)
+
+- Location: `resources/adb/` (platform-specific)
+- Used for: Connecting to Android emulators
+
+### Tesseract OCR Training Data
+
+- Location: `resources/tessdata/`
+- Files: `chi_sim.traineddata`, `eng.traineddata`
+- Used for: Screen text recognition
+- Note: Previously had a GitHub download fallback, removed since data is now bundled
