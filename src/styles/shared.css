@@ -1,0 +1,88 @@
+/* Shared utility classes */
+
+/* Text sizes */
+.text-xs {
+  font-size: 11px;
+}
+.text-sm {
+  font-size: 12px;
+}
+.text-md {
+  font-size: 13px;
+}
+.text-lg {
+  font-size: 18px;
+}
+.text-xl {
+  font-size: 20px;
+}
+.text-break {
+  word-break: break-all;
+}
+
+/* Icons */
+.icon-muted {
+  color: #bfbfbf;
+}
+.icon-warning {
+  color: #faad14;
+}
+.icon-primary {
+  color: #1677ff;
+}
+.icon-success {
+  color: #52c41a;
+}
+
+/* Layout utilities */
+.w-full {
+  width: 100%;
+}
+.flex-1 {
+  flex: 1;
+}
+.flex-2 {
+  flex: 2;
+}
+
+/* Form elements */
+.input-number-sm {
+  width: 50px;
+}
+.input-number-md {
+  width: 60px;
+}
+
+/* Tags */
+.tag-no-margin {
+  margin: 0;
+}
+
+/* Favorites */
+.favorite-card {
+  cursor: pointer;
+}
+.favorite-card-content {
+  min-width: 0;
+  flex: 1;
+}
+.favorite-name {
+  font-size: 13px;
+}
+.favorite-id {
+  font-size: 11px;
+}
+.copyable {
+  cursor: pointer;
+}
+
+/* Cards */
+.card-connected {
+  background: #f6ffed;
+}
+.card-running {
+  background: #e6f4ff;
+}
+.card-quick-nav {
+  margin-bottom: 12px;
+}

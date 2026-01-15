@@ -6,6 +6,8 @@ import {
 } from "@ant-design/icons";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import "./SortableMessageItem.css";
+import "../styles/shared.css";
 
 const { Text } = Typography;
 

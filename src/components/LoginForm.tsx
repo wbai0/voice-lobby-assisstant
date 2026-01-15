@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Layout, Card, Flex, Form, Input, Button, message } from "antd";
 import { UserOutlined, LockOutlined } from "@ant-design/icons";
 import { useAuth } from "../useAuth";
+import "./LoginForm.css";
+import "../styles/shared.css";
 
 const { Content } = Layout;
 const { Text } = Typography;

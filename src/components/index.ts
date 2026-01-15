@@ -1,3 +1,11 @@
 export { LoginForm } from "./LoginForm";
 export { SortableMessageItem } from "./SortableMessageItem";
 export type { ContentItem, ContentItemWithId } from "./SortableMessageItem";
+export { Sidebar } from "./Sidebar";
+export type { FavoriteRoom, FavoriteUser } from "./Sidebar";
+export { LogsSidebar } from "./LogsSidebar";
+export { SettingsPanel } from "./SettingsPanel";
+export { ConnectionCard, useConnectionStatus } from "./ConnectionCard";
+export { MessageEditor, getItemsForSubmit } from "./MessageEditor";
+export { ControlPanel } from "./ControlPanel";
+export { NavigationCards } from "./NavigationCards";

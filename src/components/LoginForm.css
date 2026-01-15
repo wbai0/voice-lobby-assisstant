@@ -1,0 +1,23 @@
+.login-content {
+  padding: 16px;
+  max-width: 360px;
+  margin: auto;
+  display: flex;
+  align-items: center;
+}
+
+.login-card {
+  width: 100%;
+}
+
+.login-title {
+  font-size: 20px;
+}
+
+.login-form {
+  width: 100%;
+}
+
+.login-submit {
+  margin-bottom: 8px;
+}

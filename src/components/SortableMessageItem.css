@@ -1,0 +1,25 @@
+.sortable-item {
+  padding: 8px 12px;
+  background: #fafafa;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border: 1px solid #f0f0f0;
+}
+
+.sortable-item.dragging {
+  background: rgba(22, 119, 255, 0.05);
+  border: 1px dashed #1677ff;
+  opacity: 0.5;
+}
+
+.sortable-handle {
+  cursor: grab;
+}
+
+.sortable-handle.disabled {
+  cursor: not-allowed;
+}
+
+.sortable-content {
+  flex: 1;
+}
