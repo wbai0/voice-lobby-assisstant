@@ -184,6 +184,16 @@ jobs:
             mv "$X64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig"
           fi
 
+          # Rename Windows MSI (replace spaces with dots)
+          WIN_MSI=$(find artifacts -type f -name "*.msi" ! -name "*.sig" | head -1)
+          WIN_MSI_SIG=$(find artifacts -type f -name "*.msi.sig" | head -1)
+          if [ -n "$WIN_MSI" ]; then
+            mv "$WIN_MSI" "artifacts/Pico.Live.Assistant_${VERSION}_x64_en-US.msi"
+          fi
+          if [ -n "$WIN_MSI_SIG" ]; then
+            mv "$WIN_MSI_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_x64_en-US.msi.sig"
+          fi
+
           echo "=== Renamed artifacts ==="
           find artifacts -type f -name "Pico*" | sort
 
@@ -193,28 +203,15 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Read signatures
+          # Read signatures (files are already renamed with consistent names)
           AARCH64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz.sig" 2>/dev/null || echo '')
           X64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig" 2>/dev/null || echo '')
+          WIN_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64_en-US.msi.sig" 2>/dev/null || echo '')
 
-          # Windows: find the .msi.sig file
-          echo "=== Looking for Windows artifacts ==="
-          find artifacts -type f \( -name "*.msi*" -o -name "*.nsis*" \) 2>/dev/null | sort || true
-
-          # Try to find MSI signature file
-          MSI_SIG_FILE=$(find artifacts -type f -name "*.msi.sig" 2>/dev/null | head -1)
-          if [ -n "$MSI_SIG_FILE" ]; then
-            WIN_SIG=$(cat "$MSI_SIG_FILE")
-            # Get the MSI filename (remove .sig extension)
-            MSI_FILE="${MSI_SIG_FILE%.sig}"
-            WIN_FILE=$(basename "$MSI_FILE")
-          else
-            WIN_SIG=""
-            WIN_FILE=""
-          fi
-
-          echo "Windows MSI file: $WIN_FILE"
-          echo "Windows signature length: ${#WIN_SIG}"
+          echo "=== Signatures ==="
+          echo "AARCH64_SIG length: ${#AARCH64_SIG}"
+          echo "X64_SIG length: ${#X64_SIG}"
+          echo "WIN_SIG length: ${#WIN_SIG}"
 
           cat > latest.json << EOF
           {
@@ -232,7 +229,7 @@ jobs:
               },
               "windows-x86_64": {
                 "signature": "${WIN_SIG}",
-                "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/${WIN_FILE}"
+                "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64_en-US.msi"
               }
             }
           }
