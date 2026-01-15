@@ -59,7 +59,7 @@ jobs:
         uses: lukka/get-cmake@v3.31.6
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
           cache-on-failure: true
@@ -89,7 +89,7 @@ jobs:
       - name: Build Tauri app (release)
         if: startsWith(github.ref, 'refs/tags/')
         id: tauri-release
-        uses: tauri-apps/tauri-action@42bc5976c617a0ebc2cd6e4a7e0c7a1c02bbcf9e # v0.5.21
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -224,7 +224,7 @@ jobs:
           cat latest.json
 
       - name: Publish to public releases repo
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        uses: softprops/action-gh-release@v2
         with:
           repository: wbai0/pico-releases
           token: ${{ secrets.RELEASE_TOKEN }}
