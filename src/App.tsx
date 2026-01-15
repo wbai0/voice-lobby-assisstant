@@ -648,20 +648,25 @@ function MainApp() {
     queryFn: adbApi.instances,
     staleTime: 10000,
   });
-  const { data: logs } = useQuery({
-    queryKey: ["logs"],
-    queryFn: () => logsApi.get(50),
-    staleTime: 1000,
-    refetchInterval: 1000,
-  });
+
+  // Auto status query - polls faster when running
   const { data: autoStatus } = useQuery({
     queryKey: ["autoStatus"],
     queryFn: autoMessageApi.status,
     staleTime: 500,
-    refetchInterval: (query) => (query.state.data?.data?.running ? 500 : 3000),
+    refetchInterval: (query) => (query.state.data?.data?.running ? 500 : 5000),
   });
 
-  // 自动滚动到底部
+  // Logs query - only poll frequently when automation is running
+  const isAutoRunning = autoStatus?.data?.running ?? false;
+  const { data: logs } = useQuery({
+    queryKey: ["logs"],
+    queryFn: () => logsApi.get(50),
+    staleTime: 1000,
+    refetchInterval: isAutoRunning ? 1000 : false, // Only poll when running
+  });
+
+  // Auto-scroll logs to bottom
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -1899,15 +1904,28 @@ function MainApp() {
           style={{ marginBottom: 8 }}
         >
           <Text strong>日志</Text>
-          <Button
-            size="small"
-            type="text"
-            icon={<ClearOutlined />}
-            onClick={() => clearLogs.mutate()}
-            aria-label="清除日志"
-          >
-            清空
-          </Button>
+          <Space>
+            {!isRunning && (
+              <Button
+                size="small"
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={() => qc.invalidateQueries({ queryKey: ["logs"] })}
+                aria-label="刷新日志"
+              >
+                刷新
+              </Button>
+            )}
+            <Button
+              size="small"
+              type="text"
+              icon={<ClearOutlined />}
+              onClick={() => clearLogs.mutate()}
+              aria-label="清除日志"
+            >
+              清空
+            </Button>
+          </Space>
         </Flex>
         <div
           ref={logRef}
