@@ -198,20 +198,26 @@ jobs:
           X64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig" 2>/dev/null || echo '')
 
           # Windows: find the .nsis.zip.sig or .msi.sig
-          NSIS_SIG=$(find artifacts -name "*.nsis.zip.sig" -exec cat {} \; 2>/dev/null | head -1 || echo '')
-          MSI_SIG=$(find artifacts -name "*.msi.sig" -exec cat {} \; 2>/dev/null | head -1 || echo '')
+          echo "=== Looking for Windows artifacts ==="
+          find artifacts -type f -name "*.msi*" -o -name "*.nsis*" | sort
+
+          NSIS_SIG=$(find artifacts -type f -name "*.nsis.zip.sig" -exec cat {} \; 2>/dev/null | head -1 || echo '')
+          MSI_SIG=$(find artifacts -type f -name "*.msi.sig" -exec cat {} \; 2>/dev/null | head -1 || echo '')
 
           # Prefer NSIS over MSI for Windows updates
           if [ -n "$NSIS_SIG" ]; then
             WIN_SIG="$NSIS_SIG"
-            WIN_FILE=$(find artifacts -name "*.nsis.zip" | head -1 | xargs basename 2>/dev/null || echo "")
-          else
+            WIN_FILE=$(find artifacts -type f -name "*.nsis.zip" ! -name "*.sig" | head -1 | xargs -r basename 2>/dev/null || echo "")
+          elif [ -n "$MSI_SIG" ]; then
             WIN_SIG="$MSI_SIG"
-            WIN_FILE=$(find artifacts -name "*.msi" | head -1 | xargs basename 2>/dev/null || echo "")
+            WIN_FILE=$(find artifacts -type f -name "*.msi" ! -name "*.sig" | head -1 | xargs -r basename 2>/dev/null || echo "")
+          else
+            WIN_SIG=""
+            WIN_FILE=""
           fi
 
           echo "Windows update file: $WIN_FILE"
-          echo "Windows signature: ${WIN_SIG:0:50}..."
+          echo "Windows signature length: ${#WIN_SIG}"
 
           cat > latest.json << EOF
           {
