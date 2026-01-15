@@ -89,6 +89,7 @@ jobs:
         run: npm ci
 
       # Release build with signing (tags only)
+      # Note: We don't use tauri-action's release feature because we publish to a separate public repo
       - name: Build Tauri app (release)
         if: startsWith(github.ref, 'refs/tags/')
         id: tauri-release
@@ -98,11 +99,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Pico Live Assistant ${{ github.ref_name }}"
-          releaseBody: "See the assets to download this version and install."
-          releaseDraft: false
-          prerelease: false
           args: ${{ matrix.args }}
 
       # Cache-warming build without signing (main only)
