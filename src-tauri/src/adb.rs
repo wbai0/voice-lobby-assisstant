@@ -5,8 +5,24 @@ use std::process::Command;
 use std::sync::Mutex;
 use tauri::State;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 // Global ADB path that can be overridden by user
 static CUSTOM_ADB_PATH: Mutex<Option<String>> = Mutex::new(None);
+
+/// Create a Command with hidden window on Windows
+fn create_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    
+    #[cfg(target_os = "windows")]
+    {
+        // CREATE_NO_WINDOW = 0x08000000
+        cmd.creation_flags(0x08000000);
+    }
+    
+    cmd
+}
 
 #[derive(Serialize, Clone)]
 pub struct MumuInstance {
@@ -174,7 +190,7 @@ fn detect_adb_path() -> String {
 /// Execute ADB command and return output
 fn adb_cmd(args: &[&str]) -> Result<String> {
     let adb = get_adb_path();
-    let output = Command::new(&adb)
+    let output = create_command(&adb)
         .args(args)
         .output()?;
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -293,8 +309,17 @@ pub fn scan_mumu_instances() -> Vec<MumuInstance> {
 /// Tap at coordinates
 pub fn tap(device: &str, x: i32, y: i32) -> Result<()> {
     let adb = get_adb_path();
-    Command::new(&adb)
+    create_command(&adb)
         .args(["-s", device, "shell", "input", "tap", &x.to_string(), &y.to_string()])
+        .output()?;
+    Ok(())
+}
+
+/// Press the back button
+pub fn press_back(device: &str) -> Result<()> {
+    let adb = get_adb_path();
+    create_command(&adb)
+        .args(["-s", device, "shell", "input", "keyevent", "KEYCODE_BACK"])
         .output()?;
     Ok(())
 }
@@ -330,7 +355,7 @@ pub fn input_text(device: &str, text: &str) -> Result<()> {
         .replace('>', "\\>");
     
     // Use the escaped text directly without quotes
-    Command::new(&adb)
+    create_command(&adb)
         .args(["-s", device, "shell", "input", "text", &escaped_text])
         .output()?;
     Ok(())
@@ -339,7 +364,7 @@ pub fn input_text(device: &str, text: &str) -> Result<()> {
 /// Get screen size from device
 pub fn get_screen_size(device: &str) -> (i32, i32) {
     let adb = get_adb_path();
-    if let Ok(output) = Command::new(&adb).args(["-s", device, "shell", "wm", "size"]).output() {
+    if let Ok(output) = create_command(&adb).args(["-s", device, "shell", "wm", "size"]).output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         // Parse "Physical size: 1080x1920" or "Physical size: 2160x3840"
         if let Some(size_part) = stdout.split(':').nth(1) {
@@ -368,7 +393,7 @@ pub fn detect_page(device: &str) -> PageType {
     let adb = get_adb_path();
     
     // Take screenshot and get raw bytes
-    let output = match Command::new(&adb)
+    let output = match create_command(&adb)
         .args(["-s", device, "shell", "screencap", "-p"])
         .output()
     {
@@ -621,7 +646,7 @@ pub fn cmd_adb_set_path(path: String, state: State<'_, AppState>) -> Result<Stri
 pub fn open_room(device: &str, room_id: &str) -> Result<()> {
     let adb = get_adb_path();
     let uri = format!("router://openRoom?room_id={}", room_id);
-    Command::new(&adb)
+    create_command(&adb)
         .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
         .output()?;
     Ok(())
@@ -646,7 +671,7 @@ pub fn cmd_open_room(room_id: String, state: State<'_, AppState>) -> Result<Stri
 pub fn open_chat(device: &str, uid: &str) -> Result<()> {
     let adb = get_adb_path();
     let uri = format!("router://openChat?uid={}", uid);
-    Command::new(&adb)
+    create_command(&adb)
         .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
         .output()?;
     Ok(())
@@ -671,7 +696,7 @@ pub fn cmd_open_chat(uid: String, state: State<'_, AppState>) -> Result<String, 
 pub fn open_user(device: &str, uid: &str) -> Result<()> {
     let adb = get_adb_path();
     let uri = format!("router://openUser?uid={}", uid);
-    Command::new(&adb)
+    create_command(&adb)
         .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
         .output()?;
     Ok(())
@@ -695,7 +720,7 @@ pub fn cmd_open_user(uid: String, state: State<'_, AppState>) -> Result<String, 
 /// Open message list page
 pub fn open_message_list(device: &str) -> Result<()> {
     let adb = get_adb_path();
-    Command::new(&adb)
+    create_command(&adb)
         .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", "router://openMessageList"])
         .output()?;
     Ok(())
@@ -720,7 +745,7 @@ pub fn open_route(device: &str, route: &str) -> Result<()> {
     } else {
         format!("router://{}", route)
     };
-    Command::new(&adb)
+    create_command(&adb)
         .args(["-s", device, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", &uri])
         .output()?;
     Ok(())

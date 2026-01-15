@@ -8,8 +8,23 @@ use std::process::Command;
 use std::sync::Mutex;
 use tesseract_rs::TesseractAPI;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 /// 全局 Tesseract API 实例（懒加载）
 static TESSERACT_API: Mutex<Option<TesseractAPI>> = Mutex::new(None);
+
+/// Create a Command with hidden window on Windows
+fn create_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    
+    cmd
+}
 
 /// OCR 识别结果
 #[derive(Debug, Clone)]
@@ -73,7 +88,7 @@ fn ensure_chi_sim_traineddata(tessdata_dir: &PathBuf) {
     // 下载 chi_sim.traineddata (fast version, ~2.4MB)
     let url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata";
     
-    if let Ok(output) = Command::new("curl")
+    if let Ok(output) = create_command("curl")
         .args(["-L", "-o", chi_sim_path.to_str().unwrap_or(""), url])
         .output()
     {
@@ -92,27 +107,51 @@ where
     
     // 如果还没初始化，先初始化
     if guard.is_none() {
+        eprintln!("[OCR] Initializing Tesseract...");
         let api = TesseractAPI::new();
         let tessdata_dir = get_tessdata_dir();
+        
+        eprintln!("[OCR] Tessdata dir: {:?}", tessdata_dir);
         
         // 确保中文训练数据存在
         ensure_chi_sim_traineddata(&tessdata_dir);
         
         let tessdata_str = match tessdata_dir.to_str() {
             Some(s) => s,
-            None => return None,
+            None => {
+                eprintln!("[OCR] Failed to convert tessdata path to string");
+                return None;
+            }
         };
         
-        // 尝试初始化，优先使用中文+英文
-        let init_result = api.init(tessdata_str, "chi_sim+eng")
-            .or_else(|_| api.init(tessdata_str, "chi_sim"))
-            .or_else(|_| api.init(tessdata_str, "eng"));
+        eprintln!("[OCR] Attempting to init with tessdata: {}", tessdata_str);
         
-        if init_result.is_ok() {
-            *guard = Some(api);
-        } else {
-            eprintln!("Tesseract init failed");
-            return None;
+        // 尝试初始化，优先使用中文
+        let init_result = api.init(tessdata_str, "chi_sim")
+            .or_else(|e| {
+                eprintln!("[OCR] Failed to init with chi_sim: {:?}", e);
+                api.init(tessdata_str, "eng")
+            })
+            .or_else(|e| {
+                eprintln!("[OCR] Failed to init with eng: {:?}", e);
+                api.init(tessdata_str, "chi_sim+eng")
+            });
+        
+        match init_result {
+            Ok(_) => {
+                eprintln!("[OCR] Tesseract initialized successfully");
+                
+                // 设置OCR参数以提高中文识别率
+                let _ = api.set_variable("tessedit_char_whitelist", "");
+                let _ = api.set_variable("language_model_penalty_non_dict_word", "0.5");
+                let _ = api.set_variable("language_model_penalty_non_freq_dict_word", "0.5");
+                
+                *guard = Some(api);
+            }
+            Err(e) => {
+                eprintln!("[OCR] Tesseract init failed: {:?}", e);
+                return None;
+            }
         }
     }
     
@@ -123,7 +162,7 @@ where
 fn ocr_image(image_path: &PathBuf) -> OcrResult {
     // 加载图片
     let img = match image::open(image_path) {
-        Ok(img) => img.to_rgb8(),
+        Ok(img) => img,
         Err(e) => {
             return OcrResult {
                 text: format!("加载图片失败: {}", e),
@@ -132,8 +171,29 @@ fn ocr_image(image_path: &PathBuf) -> OcrResult {
         }
     };
     
-    let (width, height) = img.dimensions();
-    let image_data = img.into_raw();
+    // 转换为灰度图并增强对比度
+    let gray = img.to_luma8();
+    
+    // 简单的对比度增强：拉伸直方图
+    let mut min_val = 255u8;
+    let mut max_val = 0u8;
+    for pixel in gray.pixels() {
+        let val = pixel[0];
+        if val < min_val { min_val = val; }
+        if val > max_val { max_val = val; }
+    }
+    
+    let range = max_val.saturating_sub(min_val).max(1) as f32;
+    let enhanced = image::ImageBuffer::from_fn(gray.width(), gray.height(), |x, y| {
+        let val = gray.get_pixel(x, y)[0];
+        let normalized = ((val.saturating_sub(min_val) as f32 / range) * 255.0) as u8;
+        image::Luma([normalized])
+    });
+    
+    // 转换为RGB供tesseract使用
+    let rgb = image::DynamicImage::ImageLuma8(enhanced).to_rgb8();
+    let (width, height) = rgb.dimensions();
+    let image_data = rgb.into_raw();
     
     let result = with_tesseract(|api| {
         // 设置图片
@@ -152,10 +212,13 @@ fn ocr_image(image_path: &PathBuf) -> OcrResult {
     });
     
     match result {
-        Some(text) => OcrResult {
-            text,
-            success: true,
-        },
+        Some(text) => {
+            eprintln!("[OCR] 识别结果: {}", text.chars().take(100).collect::<String>());
+            OcrResult {
+                text,
+                success: true,
+            }
+        }
         None => OcrResult {
             text: "OCR 识别失败".to_string(),
             success: false,
@@ -169,7 +232,7 @@ pub fn ocr_screen(device: &str) -> OcrResult {
     let temp_png = get_temp_path("pico_ocr_temp.png");
     
     // 截图
-    let output = match Command::new(&adb_path)
+    let output = match create_command(&adb_path)
         .args(["-s", device, "shell", "screencap", "-p"])
         .output()
     {
@@ -189,11 +252,34 @@ pub fn ocr_screen(device: &str) -> OcrResult {
         };
     }
 
-    if let Err(e) = fs::write(&temp_png, &output.stdout) {
+    // Fix Windows line ending corruption in PNG binary data
+    // screencap -p on Windows converts \n (0x0A) to \r\n (0x0D 0x0A)
+    let fixed_data = if cfg!(target_os = "windows") {
+        output.stdout.iter()
+            .enumerate()
+            .filter(|(i, &byte)| {
+                // Remove \r (0x0D) that appears before \n (0x0A)
+                !(byte == 0x0D && output.stdout.get(i + 1) == Some(&0x0A))
+            })
+            .map(|(_, &byte)| byte)
+            .collect::<Vec<u8>>()
+    } else {
+        output.stdout
+    };
+
+    if let Err(e) = fs::write(&temp_png, &fixed_data) {
         return OcrResult {
             text: format!("保存截图失败: {}", e),
             success: false,
         };
+    }
+
+    // 调试：保存一份副本到用户可见的位置
+    #[cfg(debug_assertions)]
+    {
+        let debug_path = std::env::temp_dir().join("pico_ocr_debug.png");
+        let _ = fs::copy(&temp_png, &debug_path);
+        eprintln!("[OCR] 调试截图已保存到: {:?}", debug_path);
     }
 
     let result = ocr_image(&temp_png);
@@ -211,14 +297,22 @@ pub fn is_on_newbie_list_debug(device: &str) -> (bool, String) {
     }
 
     let text = &result.text;
-    // 检测多种可能的关键词（Tesseract 可能识别出不同的文字）
-    let is_match = text.contains("新星") 
-        || text.contains("萌新") 
-        || text.contains("用户榜")
-        || text.contains("刷新")
-        || text.contains("发现新用户");
     
-    eprintln!("[OCR] 新星榜检测: {} - 文字: {}", if is_match { "匹配" } else { "不匹配" }, text.chars().take(100).collect::<String>());
+    // 检测多种可能的关键词（更宽松的匹配）
+    // 包括可能的OCR误识别
+    let keywords = [
+        "新星", "萌新", "用户榜", "刷新", "发现新用户",
+        "新用户", "榜单", "用户", "新人", "星榜",
+        // 可能的误识别
+        "新 星", "用 户", "榜 单"
+    ];
+    
+    let is_match = keywords.iter().any(|&keyword| text.contains(keyword));
+    
+    eprintln!("[OCR] 新星榜检测: {} - 文字: {}", 
+        if is_match { "匹配" } else { "不匹配" }, 
+        text.chars().take(200).collect::<String>()
+    );
     
     (is_match, result.text.clone())
 }
@@ -230,7 +324,7 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
     let temp_png = get_temp_path("pico_ocr_find.png");
     
     // 截图
-    let output = Command::new(&adb_path)
+    let output = create_command(&adb_path)
         .args(["-s", device, "shell", "screencap", "-p"])
         .output()
         .ok()?;
@@ -240,7 +334,20 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
         return None;
     }
 
-    fs::write(&temp_png, &output.stdout).ok()?;
+    // Fix Windows line ending corruption in PNG binary data
+    let fixed_data = if cfg!(target_os = "windows") {
+        output.stdout.iter()
+            .enumerate()
+            .filter(|(i, &byte)| {
+                !(byte == 0x0D && output.stdout.get(i + 1) == Some(&0x0A))
+            })
+            .map(|(_, &byte)| byte)
+            .collect::<Vec<u8>>()
+    } else {
+        output.stdout
+    };
+
+    fs::write(&temp_png, &fixed_data).ok()?;
     
     // 加载图片
     let img = image::open(&temp_png).ok()?.to_rgb8();

@@ -7,6 +7,21 @@ use std::thread;
 use std::time::Duration;
 use tauri::State;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// Create a Command with hidden window on Windows
+fn create_command(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000);
+    }
+    
+    cmd
+}
+
 // Cached UI element coordinates (found via UIAutomator on first use)
 static CACHED_SEND_BUTTON: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static CACHED_INPUT_BOX: Mutex<Option<(i32, i32)>> = Mutex::new(None);
@@ -48,24 +63,50 @@ fn click_liao_button(device: &str, screen_size: (i32, i32), _logger: &BgLogger) 
     true
 }
 
-/// Click the back button (top-left corner)
-fn click_back_button(device: &str, screen_size: (i32, i32)) {
-    let (screen_w, screen_h) = screen_size;
-    let scale_x = screen_w as f64 / 2160.0;
-    let scale_y = screen_h as f64 / 3840.0;
-    let btn_x = (72.0 * scale_x) as i32;
-    let btn_y = (216.0 * scale_y) as i32;
-    let _ = adb::tap(device, btn_x, btn_y);
+/// Click the back button using Android system back key
+fn click_back_button(device: &str, _screen_size: (i32, i32)) {
+    let _ = adb::press_back(device);
+}
+
+/// Smart back navigation - keeps pressing back until we're on the newbie list
+/// Returns true if successfully returned to newbie list, false if failed after max attempts
+fn smart_back_to_newbie_list(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
+    const MAX_ATTEMPTS: i32 = 5;
+    
+    for attempt in 1..=MAX_ATTEMPTS {
+        logger.log(&format!("返回尝试 {}/{}", attempt, MAX_ATTEMPTS));
+        
+        // Press back
+        click_back_button(device, screen_size);
+        thread::sleep(Duration::from_millis(1500));
+        
+        // Check if we're on newbie list
+        let (is_on_list, ocr_text) = ocr::is_on_newbie_list_debug(device);
+        
+        if is_on_list {
+            logger.log(&format!("✓ 成功返回新人榜 (第{}次尝试)", attempt));
+            return true;
+        }
+        
+        logger.log(&format!("未检测到新人榜，继续返回... OCR: {}", 
+            ocr_text.chars().take(50).collect::<String>()));
+        
+        // Small delay before next attempt
+        thread::sleep(Duration::from_millis(500));
+    }
+    
+    logger.log(&format!("⚠ 返回失败，已尝试{}次", MAX_ATTEMPTS));
+    false
 }
 
 /// Tap the Nth photo in the document picker (0-indexed)
 fn tap_photo_in_picker(device: &str, index: usize, logger: &BgLogger) -> bool {
     let adb = adb::get_adb_path_public();
-    let _ = std::process::Command::new(&adb)
+    let _ = create_command(&adb)
         .args(["-s", device, "shell", "uiautomator", "dump", "/sdcard/ui.xml"])
         .output();
     
-    let output = match std::process::Command::new(&adb)
+    let output = match create_command(&adb)
         .args(["-s", device, "shell", "cat", "/sdcard/ui.xml"])
         .output() 
     {
@@ -376,10 +417,13 @@ fn run_send_loop(
                 }
             }
             
-            // 返回
+            // 智能返回 - 会自动重试直到返回到新人榜
             thread::sleep(Duration::from_millis(500));
-            click_back_button(&device, screen_size);
-            thread::sleep(Duration::from_millis(1500));
+            if !smart_back_to_newbie_list(&device, screen_size, &logger) {
+                logger.log("⚠ 无法返回新人榜，暂停");
+                *running.lock().unwrap() = false;
+                return;
+            }
             update_page(PageType::NewbieList);
             
             *processed.lock().unwrap() = i + 1;
