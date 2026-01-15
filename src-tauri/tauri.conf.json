@@ -37,7 +37,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/adb/*": "adb/"
+      "resources/adb/*": "adb/",
+      "resources/tessdata/*": "tessdata/"
     },
     "createUpdaterArtifacts": true
   },

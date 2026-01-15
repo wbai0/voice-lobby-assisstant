@@ -42,7 +42,38 @@ fn get_temp_path(filename: &str) -> PathBuf {
 
 /// 获取 tessdata 目录路径
 fn get_tessdata_dir() -> PathBuf {
-    // tesseract-rs 默认下载 tessdata 到以下位置
+    // 优先使用打包的资源目录
+    if let Ok(exe_path) = std::env::current_exe() {
+        #[cfg(target_os = "windows")]
+        {
+            // Windows: app.exe -> tessdata/ (同目录)
+            let bundled_tessdata = exe_path.parent()
+                .map(|p| p.join("tessdata"));
+            if let Some(path) = bundled_tessdata {
+                if path.exists() {
+                    eprintln!("[OCR] 使用打包的tessdata: {:?}", path);
+                    return path;
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            // macOS: App.app/Contents/MacOS/app -> App.app/Contents/Resources/tessdata
+            let bundled_tessdata = exe_path
+                .parent() // MacOS
+                .and_then(|p| p.parent()) // Contents
+                .map(|p| p.join("Resources").join("tessdata"));
+            if let Some(path) = bundled_tessdata {
+                if path.exists() {
+                    eprintln!("[OCR] 使用打包的tessdata: {:?}", path);
+                    return path;
+                }
+            }
+        }
+    }
+    
+    // 降级到用户目录
     #[cfg(target_os = "macos")]
     {
         if let Ok(home) = std::env::var("HOME") {
@@ -78,22 +109,54 @@ fn get_tessdata_dir() -> PathBuf {
 /// 确保 chi_sim.traineddata 存在，如果不存在则下载
 fn ensure_chi_sim_traineddata(tessdata_dir: &PathBuf) {
     let chi_sim_path = tessdata_dir.join("chi_sim.traineddata");
+    
+    // 检查文件是否存在且大小合理（至少1MB）
     if chi_sim_path.exists() {
+        if let Ok(metadata) = fs::metadata(&chi_sim_path) {
+            if metadata.len() > 1_000_000 {
+                eprintln!("[OCR] chi_sim.traineddata 已存在: {:?} ({} bytes)", chi_sim_path, metadata.len());
+                return;
+            } else {
+                eprintln!("[OCR] chi_sim.traineddata 文件太小，重新下载");
+                let _ = fs::remove_file(&chi_sim_path);
+            }
+        }
+    }
+    
+    eprintln!("[OCR] ⚠ chi_sim.traineddata 不存在");
+    eprintln!("[OCR] 提示：国内用户可能无法自动下载训练数据");
+    eprintln!("[OCR] 请手动下载并放置到: {:?}", tessdata_dir);
+    eprintln!("[OCR] 下载地址: https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata");
+    
+    // 创建目录
+    if let Err(e) = fs::create_dir_all(tessdata_dir) {
+        eprintln!("[OCR] 创建tessdata目录失败: {:?}", e);
         return;
     }
     
-    // 创建目录
-    let _ = fs::create_dir_all(tessdata_dir);
-    
-    // 下载 chi_sim.traineddata (fast version, ~2.4MB)
+    // 尝试下载（可能失败）
+    eprintln!("[OCR] 尝试下载 chi_sim.traineddata...");
     let url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata";
     
-    if let Ok(output) = create_command("curl")
-        .args(["-L", "-o", chi_sim_path.to_str().unwrap_or(""), url])
+    match create_command("curl")
+        .args(["-L", "-o", chi_sim_path.to_str().unwrap_or(""), url, "--connect-timeout", "30"])
         .output()
     {
-        if output.status.success() {
-            eprintln!("Downloaded chi_sim.traineddata");
+        Ok(output) => {
+            if output.status.success() {
+                if let Ok(metadata) = fs::metadata(&chi_sim_path) {
+                    if metadata.len() > 1_000_000 {
+                        eprintln!("[OCR] ✓ chi_sim.traineddata 下载成功 ({} bytes)", metadata.len());
+                    } else {
+                        eprintln!("[OCR] ✗ 下载的文件太小，可能下载失败");
+                    }
+                }
+            } else {
+                eprintln!("[OCR] ✗ 下载失败（可能是网络问题）");
+            }
+        }
+        Err(e) => {
+            eprintln!("[OCR] ✗ 执行curl失败: {:?}", e);
         }
     }
 }
@@ -197,18 +260,25 @@ fn ocr_image(image_path: &PathBuf) -> OcrResult {
     
     let result = with_tesseract(|api| {
         // 设置图片
-        if api.set_image(
+        if let Err(e) = api.set_image(
             &image_data,
             width as i32,
             height as i32,
             3,  // bytes per pixel (RGB)
             (width * 3) as i32,  // bytes per line
-        ).is_err() {
+        ) {
+            eprintln!("[OCR] 设置图片失败: {:?}", e);
             return None;
         }
         
         // 获取识别结果
-        api.get_utf8_text().ok()
+        match api.get_utf8_text() {
+            Ok(text) => Some(text),
+            Err(e) => {
+                eprintln!("[OCR] 获取文字失败: {:?}", e);
+                None
+            }
+        }
     });
     
     match result {
@@ -219,10 +289,13 @@ fn ocr_image(image_path: &PathBuf) -> OcrResult {
                 success: true,
             }
         }
-        None => OcrResult {
-            text: "OCR 识别失败".to_string(),
-            success: false,
-        },
+        None => {
+            eprintln!("[OCR] Tesseract API 调用失败 - 可能未初始化或初始化失败");
+            OcrResult {
+                text: "OCR 识别失败 - Tesseract未就绪".to_string(),
+                success: false,
+            }
+        }
     }
 }
 
