@@ -77,13 +77,27 @@ fn get_tessdata_dir() -> PathBuf {
         
         #[cfg(target_os = "macos")]
         {
-            // 先检查是否是开发模式 (target/debug 或 target/release)
-            // exe_path: /path/to/project/src-tauri/target/debug/pico-live-assistant
-            let exe_path_str = exe_path.to_string_lossy();
-            let is_dev_mode = exe_path_str.contains("/target/debug/") || exe_path_str.contains("/target/release/");
+            // macOS 打包后: App.app/Contents/MacOS/app -> App.app/Contents/Resources/tessdata
+            // 先检查打包路径（优先级最高）
+            let bundled_tessdata = exe_path
+                .parent() // MacOS
+                .and_then(|p| p.parent()) // Contents
+                .map(|p| p.join("Resources").join("tessdata"));
+            if let Some(path) = bundled_tessdata {
+                eprintln!("[OCR] 检查打包路径: {:?}", path);
+                if path.exists() {
+                    eprintln!("[OCR] ✓ 使用打包的tessdata: {:?}", path);
+                    return path;
+                }
+            }
             
-            if is_dev_mode {
-                // 开发模式: target/debug/xxx -> src-tauri/resources/tessdata
+            // 开发模式: target/debug/xxx -> src-tauri/resources/tessdata
+            // 只有当不在 .app bundle 内时才检查开发模式
+            let exe_path_str = exe_path.to_string_lossy();
+            let is_in_app_bundle = exe_path_str.contains(".app/Contents/MacOS");
+            
+            if !is_in_app_bundle {
+                // exe_path: /path/to/project/src-tauri/target/debug/pico-live-assistant
                 if let Some(debug_dir) = exe_path.parent() { // debug
                     if let Some(target_dir) = debug_dir.parent() { // target
                         if let Some(src_tauri_dir) = target_dir.parent() { // src-tauri
@@ -94,19 +108,6 @@ fn get_tessdata_dir() -> PathBuf {
                                 return dev_tessdata;
                             }
                         }
-                    }
-                }
-            } else {
-                // macOS 打包后: App.app/Contents/MacOS/app -> App.app/Contents/Resources/tessdata
-                let bundled_tessdata = exe_path
-                    .parent() // MacOS
-                    .and_then(|p| p.parent()) // Contents
-                    .map(|p| p.join("Resources").join("tessdata"));
-                if let Some(path) = bundled_tessdata {
-                    eprintln!("[OCR] 检查打包路径: {:?}", path);
-                    if path.exists() {
-                        eprintln!("[OCR] ✓ 使用打包的tessdata: {:?}", path);
-                        return path;
                     }
                 }
             }
