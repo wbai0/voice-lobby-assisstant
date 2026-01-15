@@ -16,6 +16,7 @@ static TESSERACT_API: Mutex<Option<TesseractAPI>> = Mutex::new(None);
 
 /// Create a Command with hidden window on Windows
 fn create_command(program: &str) -> Command {
+    #[allow(unused_mut)]
     let mut cmd = Command::new(program);
     
     #[cfg(target_os = "windows")]
@@ -76,16 +77,37 @@ fn get_tessdata_dir() -> PathBuf {
         
         #[cfg(target_os = "macos")]
         {
-            // macOS: App.app/Contents/MacOS/app -> App.app/Contents/Resources/tessdata
-            let bundled_tessdata = exe_path
-                .parent() // MacOS
-                .and_then(|p| p.parent()) // Contents
-                .map(|p| p.join("Resources").join("tessdata"));
-            if let Some(path) = bundled_tessdata {
-                eprintln!("[OCR] 检查路径: {:?}", path);
-                if path.exists() {
-                    eprintln!("[OCR] ✓ 使用打包的tessdata: {:?}", path);
-                    return path;
+            // 先检查是否是开发模式 (target/debug 或 target/release)
+            // exe_path: /path/to/project/src-tauri/target/debug/pico-live-assistant
+            let exe_path_str = exe_path.to_string_lossy();
+            let is_dev_mode = exe_path_str.contains("/target/debug/") || exe_path_str.contains("/target/release/");
+            
+            if is_dev_mode {
+                // 开发模式: target/debug/xxx -> src-tauri/resources/tessdata
+                if let Some(debug_dir) = exe_path.parent() { // debug
+                    if let Some(target_dir) = debug_dir.parent() { // target
+                        if let Some(src_tauri_dir) = target_dir.parent() { // src-tauri
+                            let dev_tessdata = src_tauri_dir.join("resources").join("tessdata");
+                            eprintln!("[OCR] 检查开发模式路径: {:?}", dev_tessdata);
+                            if dev_tessdata.exists() {
+                                eprintln!("[OCR] ✓ 使用开发模式tessdata: {:?}", dev_tessdata);
+                                return dev_tessdata;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // macOS 打包后: App.app/Contents/MacOS/app -> App.app/Contents/Resources/tessdata
+                let bundled_tessdata = exe_path
+                    .parent() // MacOS
+                    .and_then(|p| p.parent()) // Contents
+                    .map(|p| p.join("Resources").join("tessdata"));
+                if let Some(path) = bundled_tessdata {
+                    eprintln!("[OCR] 检查打包路径: {:?}", path);
+                    if path.exists() {
+                        eprintln!("[OCR] ✓ 使用打包的tessdata: {:?}", path);
+                        return path;
+                    }
                 }
             }
         }
@@ -192,6 +214,7 @@ fn get_short_path(path: &PathBuf) -> Option<PathBuf> {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 fn get_short_path(_path: &PathBuf) -> Option<PathBuf> {
     None
 }
@@ -600,7 +623,7 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
                 }
                 
                 if matched {
-                    if let Some((left, top, w, h)) = first_match {
+                    if let Some((left, top, _w, h)) = first_match {
                         // 使用第一个匹配字符的位置，但考虑整个词组的宽度
                         let total_width = last_right - left;
                         let center_x = left + total_width / 2;
@@ -618,4 +641,192 @@ pub fn find_text_position(device: &str, target_text: &str) -> Option<(i32, i32)>
     
     let _ = fs::remove_file(&temp_png);
     result
+}
+
+
+/// 测试 OCR 功能 - 返回详细的诊断信息和识别结果
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OcrTestResult {
+    pub success: bool,
+    pub text: String,
+    pub tessdata_path: String,
+    pub tessdata_exists: bool,
+    pub chi_sim_exists: bool,
+    pub chi_sim_size: u64,
+    pub init_error: Option<String>,
+    pub diagnostics: Vec<String>,
+}
+
+/// Tauri 命令：测试 OCR
+#[tauri::command]
+pub fn cmd_test_ocr(state: tauri::State<'_, crate::AppState>) -> Result<OcrTestResult, String> {
+    let mut diagnostics = Vec::new();
+    
+    // 显示 exe 路径
+    if let Ok(exe_path) = std::env::current_exe() {
+        diagnostics.push(format!("exe路径: {}", exe_path.display()));
+        if let Some(exe_dir) = exe_path.parent() {
+            diagnostics.push(format!("exe目录: {}", exe_dir.display()));
+            
+            // 检查 exe 目录下是否有 tessdata
+            let bundled = exe_dir.join("tessdata");
+            diagnostics.push(format!("打包tessdata路径: {} (存在: {})", bundled.display(), bundled.exists()));
+        }
+    }
+    
+    // 获取设备
+    let device = {
+        let guard = state.connected_device.lock().map_err(|e| e.to_string())?;
+        guard.clone()
+    };
+    
+    let device = match device {
+        Some(d) => d,
+        None => {
+            return Ok(OcrTestResult {
+                success: false,
+                text: "未连接设备".to_string(),
+                tessdata_path: String::new(),
+                tessdata_exists: false,
+                chi_sim_exists: false,
+                chi_sim_size: 0,
+                init_error: Some("请先连接模拟器".to_string()),
+                diagnostics: vec!["未连接设备".to_string()],
+            });
+        }
+    };
+    
+    diagnostics.push(format!("设备: {}", device));
+    
+    // 检查 tessdata 路径
+    let tessdata_dir = get_tessdata_dir();
+    let tessdata_path = tessdata_dir.to_string_lossy().to_string();
+    let tessdata_exists = tessdata_dir.exists();
+    
+    diagnostics.push(format!("tessdata路径: {}", tessdata_path));
+    diagnostics.push(format!("tessdata存在: {}", tessdata_exists));
+    
+    // 检查 chi_sim.traineddata
+    let chi_sim_path = tessdata_dir.join("chi_sim.traineddata");
+    let chi_sim_exists = chi_sim_path.exists();
+    let chi_sim_size = if chi_sim_exists {
+        fs::metadata(&chi_sim_path).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+    
+    diagnostics.push(format!("chi_sim.traineddata存在: {}", chi_sim_exists));
+    diagnostics.push(format!("chi_sim.traineddata大小: {} bytes", chi_sim_size));
+    
+    // 列出 tessdata 目录内容
+    if tessdata_exists {
+        if let Ok(entries) = fs::read_dir(&tessdata_dir) {
+            diagnostics.push("tessdata目录内容:".to_string());
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    diagnostics.push(format!("  - {:?} ({} bytes)", entry.file_name(), metadata.len()));
+                }
+            }
+        }
+    }
+    
+    // 尝试初始化 Tesseract
+    let init_error = {
+        let mut guard = TESSERACT_API.lock().map_err(|e| e.to_string())?;
+        
+        // 强制重新初始化以获取错误信息
+        *guard = None;
+        
+        let api = TesseractAPI::new();
+        let tessdata_str = match tessdata_dir.to_str() {
+            Some(s) => s,
+            None => {
+                return Ok(OcrTestResult {
+                    success: false,
+                    text: "tessdata路径包含无效字符".to_string(),
+                    tessdata_path,
+                    tessdata_exists,
+                    chi_sim_exists,
+                    chi_sim_size,
+                    init_error: Some("路径转换失败".to_string()),
+                    diagnostics,
+                });
+            }
+        };
+        
+        diagnostics.push(format!("尝试初始化 Tesseract，路径: {}", tessdata_str));
+        
+        match api.init(tessdata_str, "chi_sim") {
+            Ok(_) => {
+                diagnostics.push("✓ Tesseract 初始化成功 (chi_sim)".to_string());
+                *guard = Some(api);
+                None
+            }
+            Err(e) => {
+                let err_msg = format!("{:?}", e);
+                diagnostics.push(format!("✗ chi_sim 初始化失败: {}", err_msg));
+                
+                // 尝试 eng
+                match api.init(tessdata_str, "eng") {
+                    Ok(_) => {
+                        diagnostics.push("✓ Tesseract 初始化成功 (eng fallback)".to_string());
+                        *guard = Some(api);
+                        None
+                    }
+                    Err(e2) => {
+                        let err_msg2 = format!("{:?}", e2);
+                        diagnostics.push(format!("✗ eng 初始化也失败: {}", err_msg2));
+                        Some(format!("chi_sim: {}, eng: {}", err_msg, err_msg2))
+                    }
+                }
+            }
+        }
+    };
+    
+    // 如果初始化失败，返回诊断信息
+    if init_error.is_some() {
+        return Ok(OcrTestResult {
+            success: false,
+            text: "Tesseract 初始化失败".to_string(),
+            tessdata_path,
+            tessdata_exists,
+            chi_sim_exists,
+            chi_sim_size,
+            init_error,
+            diagnostics,
+        });
+    }
+    
+    // 执行 OCR 测试
+    diagnostics.push("开始截图并识别...".to_string());
+    
+    let result = ocr_screen(&device);
+    
+    diagnostics.push(format!("OCR 结果: success={}", result.success));
+    
+    // 添加日志
+    {
+        let mut logs = state.logs.lock().map_err(|e| e.to_string())?;
+        for diag in &diagnostics {
+            logs.push(format!("[OCR测试] {}", diag));
+        }
+        if result.success {
+            // 显示识别到的文字（限制长度）
+            let preview: String = result.text.chars().take(500).collect();
+            logs.push(format!("[OCR测试] 识别文字: {}", preview.replace('\n', " | ")));
+        } else {
+            logs.push(format!("[OCR测试] 识别失败: {}", result.text));
+        }
+    }
+    
+    Ok(OcrTestResult {
+        success: result.success,
+        text: result.text,
+        tessdata_path,
+        tessdata_exists,
+        chi_sim_exists,
+        chi_sim_size,
+        init_error,
+        diagnostics,
+    })
 }

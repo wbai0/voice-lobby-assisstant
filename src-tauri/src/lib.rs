@@ -44,6 +44,8 @@ pub fn run() {
             keep_awake::cmd_keep_awake_start,
             keep_awake::cmd_keep_awake_stop,
             keep_awake::cmd_keep_awake_status,
+            // OCR test
+            ocr::cmd_test_ocr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

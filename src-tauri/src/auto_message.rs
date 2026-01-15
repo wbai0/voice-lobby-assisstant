@@ -12,6 +12,7 @@ use std::os::windows::process::CommandExt;
 
 /// Create a Command with hidden window on Windows
 fn create_command(program: &str) -> std::process::Command {
+    #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(program);
     
     #[cfg(target_os = "windows")]
@@ -218,6 +219,7 @@ fn click_input_box(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> 
 }
 
 /// Clear cached coordinates (call when switching devices or apps)
+#[allow(dead_code)]
 pub fn clear_ui_cache() {
     if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
         *guard = None;

@@ -13,6 +13,7 @@ static CUSTOM_ADB_PATH: Mutex<Option<String>> = Mutex::new(None);
 
 /// Create a Command with hidden window on Windows
 fn create_command(program: &str) -> Command {
+    #[allow(unused_mut)]
     let mut cmd = Command::new(program);
     
     #[cfg(target_os = "windows")]

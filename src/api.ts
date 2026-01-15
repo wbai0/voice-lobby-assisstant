@@ -301,4 +301,38 @@ export const autoMessageApi = {
   },
 };
 
+// OCR Test Result type
+export interface OcrTestResult {
+  success: boolean;
+  text: string;
+  tessdata_path: string;
+  tessdata_exists: boolean;
+  chi_sim_exists: boolean;
+  chi_sim_size: number;
+  init_error: string | null;
+  diagnostics: string[];
+}
+
+// OCR API
+export const ocrApi = {
+  test: async (): Promise<{ data: OcrTestResult }> => {
+    if (isTauri()) {
+      const data = await invoke<OcrTestResult>("cmd_test_ocr");
+      return { data };
+    }
+    return {
+      data: {
+        success: false,
+        text: "Not in Tauri",
+        tessdata_path: "",
+        tessdata_exists: false,
+        chi_sim_exists: false,
+        chi_sim_size: 0,
+        init_error: "Not in Tauri environment",
+        diagnostics: [],
+      },
+    };
+  },
+};
+
 export { isTauri };
