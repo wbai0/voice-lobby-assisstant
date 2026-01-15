@@ -690,7 +690,13 @@ function MainApp() {
     mutationFn: async () => {
       const { allowed, reason } = canUseFeature();
       if (!allowed) throw new Error(reason);
-      await recordUsage();
+      const { success, error } = await recordUsage();
+      if (!success) {
+        // Log error but don't block - usage tracking failure shouldn't prevent feature use
+        if (import.meta.env.DEV) {
+          console.warn("Failed to record usage:", error);
+        }
+      }
       return autoMessageApi.start(
         items.map(({ id, ...rest }) => rest),
         maxUsers,
@@ -928,6 +934,7 @@ function MainApp() {
                               e.stopPropagation();
                               removeFavoriteRoom(room.id);
                             }}
+                            aria-label="删除收藏房间"
                           />
                         </Flex>
                       </Card>
@@ -1062,6 +1069,7 @@ function MainApp() {
                                   openChat.mutate(user.id);
                               }}
                               title="聊天"
+                              aria-label="打开聊天"
                             />
                             <Button
                               type="text"
@@ -1073,6 +1081,7 @@ function MainApp() {
                                   openUser.mutate(user.id);
                               }}
                               title="主页"
+                              aria-label="打开主页"
                             />
                             <Button
                               type="text"
@@ -1081,6 +1090,7 @@ function MainApp() {
                               icon={<DeleteOutlined />}
                               onClick={() => removeFavoriteUser(user.id)}
                               title="删除"
+                              aria-label="删除收藏用户"
                             />
                           </Space>
                         </Flex>
@@ -1331,6 +1341,7 @@ function MainApp() {
                     onClick={addFavoriteRoom}
                     disabled={!roomId || isRunning}
                     title="收藏"
+                    aria-label="收藏房间"
                   />
                   <Button
                     size="small"
@@ -1397,6 +1408,7 @@ function MainApp() {
                     }}
                     disabled={!userId || isRunning}
                     title="收藏"
+                    aria-label="收藏用户"
                   />
                   <Button
                     size="small"
@@ -1517,6 +1529,7 @@ function MainApp() {
                   type="text"
                   icon={<SaveOutlined />}
                   onClick={saveAsNewTemplate}
+                  aria-label="保存为新模板"
                 />
               </Space>
             }

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { isTauri } from "./api";
 
 export interface UpdateInfo {
   available: boolean;
@@ -23,6 +24,14 @@ export function useUpdater() {
   const updateRef = useRef<Update | null>(null);
 
   const checkForUpdates = async (): Promise<boolean> => {
+    // Guard: only check for updates in Tauri environment
+    if (!isTauri()) {
+      if (import.meta.env.DEV) {
+        console.log("Skipping update check: not in Tauri environment");
+      }
+      return false;
+    }
+
     setUpdateInfo((prev) => ({ ...prev, checking: true, error: undefined }));
     try {
       const update = await check();
@@ -59,6 +68,11 @@ export function useUpdater() {
   };
 
   const downloadAndInstall = async () => {
+    // Guard: only download in Tauri environment
+    if (!isTauri()) {
+      return;
+    }
+
     try {
       // Use cached update object if available, otherwise check again
       const update = updateRef.current ?? (await check());

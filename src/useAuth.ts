@@ -153,28 +153,51 @@ export function useAuth() {
     return { allowed: true };
   };
 
-  // Record usage
-  const recordUsage = async () => {
-    if (!profile || profile.is_subscribed || profile.is_admin) return;
+  // Record usage - returns success status
+  const recordUsage = async (): Promise<{
+    success: boolean;
+    error?: string;
+  }> => {
+    if (!profile || profile.is_subscribed || profile.is_admin) {
+      return { success: true };
+    }
 
     const today = new Date().toISOString().split("T")[0];
     const isNewDay = profile.last_usage_date !== today;
 
     const newUsage = isNewDay ? 1 : profile.daily_usage + 1;
 
-    await supabase
-      .from("profiles")
-      .update({
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          daily_usage: newUsage,
+          last_usage_date: today,
+        })
+        .eq("id", profile.id);
+
+      if (error) {
+        if (import.meta.env.DEV) {
+          console.error("recordUsage error:", error);
+        }
+        return { success: false, error: error.message };
+      }
+
+      // Optimistically update local state
+      setProfile({
+        ...profile,
         daily_usage: newUsage,
         last_usage_date: today,
-      })
-      .eq("id", profile.id);
+      });
 
-    setProfile({
-      ...profile,
-      daily_usage: newUsage,
-      last_usage_date: today,
-    });
+      return { success: true };
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : "Unknown error";
+      if (import.meta.env.DEV) {
+        console.error("recordUsage error:", e);
+      }
+      return { success: false, error: errorMsg };
+    }
   };
 
   // Get remaining usage count

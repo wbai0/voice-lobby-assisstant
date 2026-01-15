@@ -8,7 +8,7 @@ const isTauri = (): boolean => {
 // Conditional logger - only logs in development
 const devLog = (...args: unknown[]) => {
   if (import.meta.env.DEV) {
-    devLog(...args);
+    console.log(...args);
   }
 };
 
