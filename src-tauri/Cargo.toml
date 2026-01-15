@@ -14,10 +14,6 @@ crate-type = ["lib", "cdylib", "staticlib"]
 name = "pico-live-assistant"
 path = "src/main.rs"
 
-[[bin]]
-name = "test_send"
-path = "src/bin/test_send.rs"
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
