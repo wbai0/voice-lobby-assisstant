@@ -113,3 +113,11 @@ This generates:
 - Cache key is based on `Cargo.lock` hash
 - If dependencies change, cache is invalidated
 - First build after dependency change will be slow, subsequent builds use cache
+- Cache is only saved on `main` branch builds to avoid conflicts between parallel tag/main builds
+- Tag builds restore from cache but don't save (they use the cache warmed by main)
+
+### Cache warming builds fail with signing error
+
+- Fixed by using `--no-bundle` flag for cache warming builds
+- This compiles Rust code (warming the cache) but skips bundling/signing
+- Only tag builds create signed bundles
