@@ -44,15 +44,32 @@ fn get_temp_path(filename: &str) -> PathBuf {
 fn get_tessdata_dir() -> PathBuf {
     // 优先使用打包的资源目录
     if let Ok(exe_path) = std::env::current_exe() {
+        eprintln!("[OCR] exe路径: {:?}", exe_path);
+        
         #[cfg(target_os = "windows")]
         {
-            // Windows: app.exe -> tessdata/ (同目录)
-            let bundled_tessdata = exe_path.parent()
-                .map(|p| p.join("tessdata"));
-            if let Some(path) = bundled_tessdata {
-                if path.exists() {
-                    eprintln!("[OCR] 使用打包的tessdata: {:?}", path);
-                    return path;
+            // Windows MSI 安装后: C:\Program Files\Pico Live Assistant\pico-live-assistant.exe
+            // resources 在: C:\Program Files\Pico Live Assistant\tessdata\
+            if let Some(exe_dir) = exe_path.parent() {
+                eprintln!("[OCR] exe目录: {:?}", exe_dir);
+                
+                // 尝试 exe 同目录
+                let bundled_tessdata = exe_dir.join("tessdata");
+                eprintln!("[OCR] 检查路径: {:?}", bundled_tessdata);
+                if bundled_tessdata.exists() {
+                    // 尝试转换为短路径（8.3格式）以避免中文路径问题
+                    let final_path = get_short_path(&bundled_tessdata).unwrap_or(bundled_tessdata);
+                    eprintln!("[OCR] ✓ 使用打包的tessdata: {:?}", final_path);
+                    return final_path;
+                }
+                
+                // 尝试 resources 子目录 (某些打包方式)
+                let resources_tessdata = exe_dir.join("resources").join("tessdata");
+                eprintln!("[OCR] 检查路径: {:?}", resources_tessdata);
+                if resources_tessdata.exists() {
+                    let final_path = get_short_path(&resources_tessdata).unwrap_or(resources_tessdata);
+                    eprintln!("[OCR] ✓ 使用resources下的tessdata: {:?}", final_path);
+                    return final_path;
                 }
             }
         }
@@ -65,59 +82,147 @@ fn get_tessdata_dir() -> PathBuf {
                 .and_then(|p| p.parent()) // Contents
                 .map(|p| p.join("Resources").join("tessdata"));
             if let Some(path) = bundled_tessdata {
+                eprintln!("[OCR] 检查路径: {:?}", path);
                 if path.exists() {
-                    eprintln!("[OCR] 使用打包的tessdata: {:?}", path);
+                    eprintln!("[OCR] ✓ 使用打包的tessdata: {:?}", path);
                     return path;
                 }
             }
         }
     }
     
-    // 降级到用户目录
-    #[cfg(target_os = "macos")]
+    eprintln!("[OCR] ⚠ 未找到打包的tessdata，降级到用户目录");
+    
+    // 降级到用户目录 - 使用短路径避免中文路径问题
+    #[cfg(target_os = "windows")]
     {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home)
-                .join("Library")
-                .join("Application Support")
-                .join("tesseract-rs")
+        // 优先使用 ProgramData (通常是 C:\ProgramData，不含中文)
+        if let Ok(programdata) = std::env::var("ProgramData") {
+            let path = PathBuf::from(programdata)
+                .join("pico-assistant")
                 .join("tessdata");
+            eprintln!("[OCR] 使用ProgramData目录: {:?}", path);
+            return path;
+        }
+        // 备选：APPDATA (可能包含中文用户名)
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let path = PathBuf::from(appdata)
+                .join("pico-assistant")
+                .join("tessdata");
+            eprintln!("[OCR] 使用APPDATA目录: {:?}", path);
+            return path;
         }
     }
     
-    #[cfg(target_os = "windows")]
+    #[cfg(target_os = "macos")]
     {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            return PathBuf::from(appdata)
-                .join("tesseract-rs")
+        if let Ok(home) = std::env::var("HOME") {
+            let path = PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("pico-assistant")
                 .join("tessdata");
+            eprintln!("[OCR] 使用用户目录: {:?}", path);
+            return path;
         }
     }
     
     #[cfg(target_os = "linux")]
     {
         if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home)
-                .join(".tesseract-rs")
+            let path = PathBuf::from(home)
+                .join(".pico-assistant")
                 .join("tessdata");
+            eprintln!("[OCR] 使用用户目录: {:?}", path);
+            return path;
         }
     }
     
+    eprintln!("[OCR] 使用当前目录: tessdata");
     PathBuf::from("tessdata")
+}
+
+/// Windows: 获取短路径（8.3格式）以避免中文路径问题
+#[cfg(target_os = "windows")]
+fn get_short_path(path: &PathBuf) -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    
+    // 转换为宽字符
+    let wide_path: Vec<u16> = path.as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    
+    // 获取短路径长度
+    let len = unsafe {
+        windows::Win32::Storage::FileSystem::GetShortPathNameW(
+            windows::core::PCWSTR::from_raw(wide_path.as_ptr()),
+            None,
+        )
+    };
+    
+    if len == 0 {
+        eprintln!("[OCR] GetShortPathNameW 失败，使用原路径");
+        return None;
+    }
+    
+    // 获取短路径
+    let mut short_path: Vec<u16> = vec![0; len as usize];
+    let result = unsafe {
+        windows::Win32::Storage::FileSystem::GetShortPathNameW(
+            windows::core::PCWSTR::from_raw(wide_path.as_ptr()),
+            Some(&mut short_path),
+        )
+    };
+    
+    if result == 0 {
+        eprintln!("[OCR] GetShortPathNameW 失败，使用原路径");
+        return None;
+    }
+    
+    // 移除末尾的 null
+    short_path.truncate(result as usize);
+    let short_os_string = OsString::from_wide(&short_path);
+    let short_pathbuf = PathBuf::from(short_os_string);
+    
+    eprintln!("[OCR] 短路径转换: {:?} -> {:?}", path, short_pathbuf);
+    Some(short_pathbuf)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_short_path(_path: &PathBuf) -> Option<PathBuf> {
+    None
 }
 
 /// 检查 chi_sim.traineddata 是否存在
 fn ensure_chi_sim_traineddata(tessdata_dir: &PathBuf) {
+    // 列出目录内容用于调试
+    eprintln!("[OCR] 检查tessdata目录: {:?}", tessdata_dir);
+    if tessdata_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(tessdata_dir) {
+            eprintln!("[OCR] 目录内容:");
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    eprintln!("[OCR]   - {:?} ({} bytes)", entry.file_name(), metadata.len());
+                }
+            }
+        }
+    } else {
+        eprintln!("[OCR] ⚠ tessdata目录不存在!");
+    }
+    
     let chi_sim_path = tessdata_dir.join("chi_sim.traineddata");
     
     // 检查文件是否存在且大小合理（至少1MB）
     if chi_sim_path.exists() {
         if let Ok(metadata) = fs::metadata(&chi_sim_path) {
             if metadata.len() > 1_000_000 {
-                eprintln!("[OCR] chi_sim.traineddata 已存在: {:?} ({} bytes)", chi_sim_path, metadata.len());
+                eprintln!("[OCR] ✓ chi_sim.traineddata 已存在: {:?} ({} bytes)", chi_sim_path, metadata.len());
                 return;
             } else {
-                eprintln!("[OCR] ⚠ chi_sim.traineddata 文件太小，可能损坏");
+                eprintln!("[OCR] ⚠ chi_sim.traineddata 文件太小 ({} bytes)，可能损坏", metadata.len());
             }
         }
     } else {
