@@ -9,3 +9,4 @@ export { ConnectionCard, useConnectionStatus } from "./ConnectionCard";
 export { MessageEditor, getItemsForSubmit } from "./MessageEditor";
 export { ControlPanel } from "./ControlPanel";
 export { NavigationCards } from "./NavigationCards";
+export { SubscriptionPanel } from "./SubscriptionPanel";

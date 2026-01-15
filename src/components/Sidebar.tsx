@@ -8,6 +8,7 @@ import {
   Space,
   Typography,
   message,
+  Tooltip,
 } from "antd";
 import {
   SearchOutlined,
@@ -16,6 +17,7 @@ import {
   PlusOutlined,
   DeleteOutlined,
   HomeOutlined,
+  LockOutlined,
 } from "@ant-design/icons";
 import "./Sidebar.css";
 import "../styles/shared.css";
@@ -42,6 +44,7 @@ interface SidebarProps {
   onUserChat: (userId: string) => void;
   onUserProfile: (userId: string) => void;
   onAddUser: () => void;
+  canUseFavorites?: boolean; // 是否可以使用收藏功能
 }
 
 export function Sidebar({
@@ -49,6 +52,7 @@ export function Sidebar({
   onUserChat,
   onUserProfile,
   onAddUser,
+  canUseFavorites = false,
 }: SidebarProps) {
   const [messageApi, contextHolder] = message.useMessage();
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -168,9 +172,18 @@ export function Sidebar({
             <Text type="secondary" className="text-xs">
               ({filteredRooms.length}/{favoriteRooms.length})
             </Text>
+            {!canUseFavorites && (
+              <Tooltip title="高级会员功能">
+                <LockOutlined className="icon-muted" />
+              </Tooltip>
+            )}
           </Flex>
           <div className="sidebar-section-content">
-            {favoriteRooms.length > 0 ? (
+            {!canUseFavorites ? (
+              <Text type="secondary" className="text-sm">
+                <LockOutlined /> 升级高级会员解锁收藏功能
+              </Text>
+            ) : favoriteRooms.length > 0 ? (
               <Flex vertical gap={4}>
                 {filteredRooms.map((room) => (
                   <Card
@@ -251,17 +264,28 @@ export function Sidebar({
               <Text type="secondary" className="text-xs">
                 ({filteredUsers.length}/{favoriteUsers.length})
               </Text>
+              {!canUseFavorites && (
+                <Tooltip title="高级会员功能">
+                  <LockOutlined className="icon-muted" />
+                </Tooltip>
+              )}
             </Flex>
-            <Button
-              type="text"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={onAddUser}
-              aria-label="添加收藏用户"
-            />
+            {canUseFavorites && (
+              <Button
+                type="text"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={onAddUser}
+                aria-label="添加收藏用户"
+              />
+            )}
           </Flex>
           <div className="sidebar-section-content">
-            {favoriteUsers.length > 0 ? (
+            {!canUseFavorites ? (
+              <Text type="secondary" className="text-sm">
+                <LockOutlined /> 升级高级会员解锁收藏功能
+              </Text>
+            ) : favoriteUsers.length > 0 ? (
               <Flex vertical gap={4}>
                 {filteredUsers.map((user) => (
                   <Card

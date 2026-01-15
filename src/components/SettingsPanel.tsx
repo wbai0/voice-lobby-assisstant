@@ -22,6 +22,8 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
     result: {
       success: boolean;
       text: string;
+      tesseract_path: string;
+      tesseract_exists: boolean;
       tessdata_path: string;
       tessdata_exists: boolean;
       chi_sim_exists: boolean;

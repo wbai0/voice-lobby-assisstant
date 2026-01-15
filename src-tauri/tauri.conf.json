@@ -38,7 +38,8 @@
     ],
     "resources": {
       "resources/adb/*": "adb/",
-      "resources/tessdata/*": "tessdata/"
+      "resources/tesseract-macos/**/*": "tesseract/",
+      "resources/tesseract-windows/**/*": "tesseract/"
     },
     "createUpdaterArtifacts": true
   },

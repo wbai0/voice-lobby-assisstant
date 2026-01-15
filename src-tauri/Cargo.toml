@@ -27,7 +27,6 @@ anyhow = "1"
 image = "0.25"
 tauri-plugin-updater = "2.9.0"
 tauri-plugin-process = "2.3.1"
-tesseract-rs = { version = "0.1", features = ["build-tesseract"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_System_Power", "Win32_Storage_FileSystem"] }
+windows = { version = "0.58", features = ["Win32_System_Power"] }

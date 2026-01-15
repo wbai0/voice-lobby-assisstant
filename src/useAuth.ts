@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { supabase, FREE_DAILY_LIMIT } from "./supabase";
+import { supabase } from "./supabase";
 import type { UserProfile } from "./supabase";
 import type { User } from "@supabase/supabase-js";
 
@@ -30,13 +30,21 @@ export function useAuth() {
       if (error) {
         if (error.code === "PGRST116") {
           // Profile doesn't exist, create one
+          // 注意：新用户会通过数据库触发器自动创建，这里是备用逻辑
           const today = new Date().toISOString().split("T")[0];
-          const newProfile: Omit<UserProfile, "email"> = {
+          const trialExpires = new Date(
+            Date.now() + 24 * 60 * 60 * 1000
+          ).toISOString();
+          const newProfile: Partial<UserProfile> = {
             id: userId,
             is_subscribed: false,
             is_admin: false,
             daily_usage: 0,
             last_usage_date: today,
+            diamonds: 0,
+            subscription_type: null,
+            subscription_expires_at: null,
+            trial_expires_at: trialExpires,
           };
           await supabase.from("profiles").insert(newProfile);
           setProfile({ ...newProfile, email: "" } as UserProfile);
@@ -135,82 +143,6 @@ export function useAuth() {
     currentUserId.current = null;
   };
 
-  // Check if user can use feature
-  const canUseFeature = (): { allowed: boolean; reason?: string } => {
-    if (!profile) return { allowed: false, reason: "请先登录" };
-    if (profile.is_subscribed || profile.is_admin) return { allowed: true };
-
-    const today = new Date().toISOString().split("T")[0];
-    const usageToday =
-      profile.last_usage_date === today ? profile.daily_usage : 0;
-
-    if (usageToday >= FREE_DAILY_LIMIT) {
-      return {
-        allowed: false,
-        reason: `今日免费次数已用完 (${FREE_DAILY_LIMIT}次)，请订阅解锁无限使用`,
-      };
-    }
-    return { allowed: true };
-  };
-
-  // Record usage - returns success status
-  const recordUsage = async (): Promise<{
-    success: boolean;
-    error?: string;
-  }> => {
-    if (!profile || profile.is_subscribed || profile.is_admin) {
-      return { success: true };
-    }
-
-    const today = new Date().toISOString().split("T")[0];
-    const isNewDay = profile.last_usage_date !== today;
-
-    const newUsage = isNewDay ? 1 : profile.daily_usage + 1;
-
-    try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          daily_usage: newUsage,
-          last_usage_date: today,
-        })
-        .eq("id", profile.id);
-
-      if (error) {
-        if (import.meta.env.DEV) {
-          console.error("recordUsage error:", error);
-        }
-        return { success: false, error: error.message };
-      }
-
-      // Optimistically update local state
-      setProfile({
-        ...profile,
-        daily_usage: newUsage,
-        last_usage_date: today,
-      });
-
-      return { success: true };
-    } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : "Unknown error";
-      if (import.meta.env.DEV) {
-        console.error("recordUsage error:", e);
-      }
-      return { success: false, error: errorMsg };
-    }
-  };
-
-  // Get remaining usage count
-  const getRemainingUsage = (): number | "unlimited" => {
-    if (!profile) return 0;
-    if (profile.is_subscribed || profile.is_admin) return "unlimited";
-
-    const today = new Date().toISOString().split("T")[0];
-    const usageToday =
-      profile.last_usage_date === today ? profile.daily_usage : 0;
-    return Math.max(0, FREE_DAILY_LIMIT - usageToday);
-  };
-
   return {
     user,
     profile,
@@ -218,9 +150,6 @@ export function useAuth() {
     signIn,
     signUp,
     signOut,
-    canUseFeature,
-    recordUsage,
-    getRemainingUsage,
     refreshProfile,
   };
 }

@@ -16,15 +16,45 @@ const supabaseAnonKey =
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Subscription types
+export type SubscriptionType = "basic" | "premium" | null;
+
 // User subscription status type
 export interface UserProfile {
   id: string;
   email: string;
-  is_subscribed: boolean;
+  is_subscribed: boolean; // 保留兼容，但不再使用
   is_admin: boolean;
   daily_usage: number;
   last_usage_date: string;
+  // 新增订阅字段
+  diamonds: number;
+  subscription_type: SubscriptionType;
+  subscription_expires_at: string | null;
+  trial_expires_at: string | null;
 }
 
-// Daily free usage limit
+// Subscription plan
+export interface SubscriptionPlan {
+  id: number;
+  type: "basic" | "premium";
+  duration_days: number;
+  duration_label: string;
+  price_diamonds: number;
+}
+
+// Diamond transaction
+export interface DiamondTransaction {
+  id: number;
+  user_id: string;
+  amount: number;
+  type: "recharge" | "subscribe" | "refund" | "gift";
+  description: string | null;
+  created_at: string;
+}
+
+// Daily free usage limit (保留兼容)
 export const FREE_DAILY_LIMIT = 10;
+
+// 订阅校验间隔（毫秒）
+export const SUBSCRIPTION_CHECK_INTERVAL = 5 * 60 * 1000; // 5分钟

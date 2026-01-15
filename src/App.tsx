@@ -8,7 +8,6 @@ import {
   Layout,
   Flex,
   Typography,
-  Tag,
   Space,
   Button,
   message,
@@ -17,13 +16,12 @@ import {
 import {
   SettingOutlined,
   LogoutOutlined,
-  CrownOutlined,
   CloudDownloadOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "./useAuth";
+import { useSubscription } from "./useSubscription";
 import { useUpdater } from "./useUpdater";
-import { FREE_DAILY_LIMIT } from "./supabase";
-import { autoMessageApi, logsApi } from "./api";
+import { autoMessageApi, logsApi, adbApi } from "./api";
 import {
   LoginForm,
   Sidebar,
@@ -34,6 +32,7 @@ import {
   MessageEditor,
   ControlPanel,
   NavigationCards,
+  SubscriptionPanel,
   getItemsForSubmit,
 } from "./components";
 import type { ContentItemWithId } from "./components";
@@ -92,14 +91,8 @@ function MainApp() {
   const [messageApi, contextHolder] = message.useMessage();
   const [notificationApi, notificationContextHolder] =
     notification.useNotification();
-  const {
-    profile,
-    signOut,
-    canUseFeature,
-    recordUsage,
-    getRemainingUsage,
-    refreshProfile,
-  } = useAuth();
+  const { profile, signOut, refreshProfile } = useAuth();
+  const subscription = useSubscription(profile, refreshProfile);
   const updater = useUpdater();
   const connected = useConnectionStatus();
 
@@ -107,9 +100,6 @@ function MainApp() {
   const [items, setItems] = useState<ContentItemWithId[]>([]);
   const [maxUsers, setMaxUsers] = useState(10);
   const [delay, setDelay] = useState(5);
-
-  const remainingUsage = getRemainingUsage();
-  const isSubscribed = profile?.is_subscribed ?? false;
 
   // Update notification
   useEffect(() => {
@@ -168,10 +158,9 @@ function MainApp() {
 
   const startAuto = useMutation({
     mutationFn: async () => {
-      const { allowed, reason } = canUseFeature();
+      // 检查订阅状态
+      const { allowed, reason } = subscription.canUseFeature();
       if (!allowed) throw new Error(reason);
-      const { success } = await recordUsage();
-      if (success) await refreshProfile();
       return autoMessageApi.start(getItemsForSubmit(items), maxUsers, delay);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["autoStatus", "logs"] }),
@@ -193,40 +182,54 @@ function MainApp() {
     onError: (err: Error) => messageApi.error(err.message),
   });
 
+  // Sidebar 操作
+  const openRoom = useMutation({
+    mutationFn: (roomId: string) => adbApi.openRoom(roomId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["logs"] });
+      messageApi.success("已跳转");
+    },
+    onError: (err: Error) => messageApi.error(err.message),
+  });
+
+  const openChat = useMutation({
+    mutationFn: (uid: string) => adbApi.openChat(uid),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["logs"] });
+      messageApi.success("已打开聊天");
+    },
+    onError: (err: Error) => messageApi.error(err.message),
+  });
+
+  const openUser = useMutation({
+    mutationFn: (uid: string) => adbApi.openUser(uid),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["logs"] });
+      messageApi.success("已打开主页");
+    },
+    onError: (err: Error) => messageApi.error(err.message),
+  });
+
   return (
     <Layout className="app-layout">
       {contextHolder}
       {notificationContextHolder}
 
       <Sidebar
-        onRoomSelect={() => {}}
-        onUserChat={() => {}}
-        onUserProfile={() => {}}
+        onRoomSelect={(roomId) => openRoom.mutate(roomId)}
+        onUserChat={(uid) => openChat.mutate(uid)}
+        onUserProfile={(uid) => openUser.mutate(uid)}
         onAddUser={() => {}}
+        canUseFavorites={subscription.canUseFeature().allowed}
       />
 
       <Content className="app-content">
         <Flex vertical gap={12} className="main-container">
           {/* Header */}
           <Flex justify="space-between" align="center">
-            <Flex align="center" gap={8}>
-              <Text strong className="text-lg">
-                Pico
-              </Text>
-              {isSubscribed ? (
-                <Tag
-                  color="gold"
-                  icon={<CrownOutlined />}
-                  className="tag-no-margin"
-                >
-                  会员
-                </Tag>
-              ) : (
-                <Tag className="tag-no-margin">
-                  {remainingUsage}/{FREE_DAILY_LIMIT}
-                </Tag>
-              )}
-            </Flex>
+            <Text strong className="text-lg">
+              Pico
+            </Text>
             <Space size={4}>
               <Button
                 size="small"
@@ -244,6 +247,16 @@ function MainApp() {
               />
             </Space>
           </Flex>
+
+          {/* 订阅状态 */}
+          <SubscriptionPanel
+            profile={profile}
+            status={subscription.status}
+            plans={subscription.plans}
+            formatRemaining={subscription.formatRemaining}
+            onPurchase={subscription.purchaseSubscription}
+            onMessage={handleMessage}
+          />
 
           {showSettings && <SettingsPanel onMessage={handleMessage} />}
 

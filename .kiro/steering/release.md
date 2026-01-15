@@ -134,9 +134,23 @@ The following resources are bundled with the app and do NOT require network acce
 - Location: `resources/adb/` (platform-specific)
 - Used for: Connecting to Android emulators
 
-### Tesseract OCR Training Data
+### Tesseract OCR
 
-- Location: `resources/tessdata/`
-- Files: `chi_sim.traineddata`, `eng.traineddata`
-- Used for: Screen text recognition
-- Note: Previously had a GitHub download fallback, removed since data is now bundled
+We bundle Tesseract CLI binary and training data for text recognition.
+
+**macOS**:
+
+- Development: Uses system Homebrew tesseract (`brew install tesseract tesseract-lang`)
+- Production: Can bundle tesseract binary in `resources/tesseract-macos/` or rely on Homebrew
+
+**Windows**:
+
+- Location: `resources/tesseract-windows/`
+- Required files:
+  - `tesseract.exe`
+  - All DLL dependencies (~15 files)
+  - `tessdata/chi_sim.traineddata` (~40MB)
+  - `tessdata/eng.traineddata` (~4MB)
+- Download from: https://github.com/UB-Mannheim/tesseract/wiki
+
+See `steering/ocr.md` for detailed OCR implementation notes.
