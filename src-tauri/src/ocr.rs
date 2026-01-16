@@ -106,7 +106,22 @@ fn get_tessdata_dir() -> Option<(PathBuf, bool)> {
         
         // Windows bundled: exe_dir/tesseract/tessdata
         let tessdata_path = exe_dir.join("tesseract").join("tessdata");
+        eprintln!("[OCR] Checking bundled tessdata: {:?}", tessdata_path);
+        
+        // List contents of tesseract directory for debugging
+        if let Ok(entries) = fs::read_dir(exe_dir.join("tesseract")) {
+            eprintln!("[OCR] Contents of tesseract directory:");
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    eprintln!("[OCR]   - {:?}", entry.path());
+                }
+            }
+        } else {
+            eprintln!("[OCR] Could not read tesseract directory: {:?}", exe_dir.join("tesseract"));
+        }
+        
         let chi_sim = tessdata_path.join("chi_sim.traineddata");
+        eprintln!("[OCR] Checking chi_sim file: {:?}", chi_sim);
         if chi_sim.exists() {
             return Some((tessdata_path, true));
         }
@@ -114,6 +129,7 @@ fn get_tessdata_dir() -> Option<(PathBuf, bool)> {
         // Dev mode
         if let Some(src_tauri) = exe_dir.parent().and_then(|p| p.parent()) {
             let dev_path = src_tauri.join("resources").join("tesseract-windows").join("tessdata");
+            eprintln!("[OCR] Checking dev tessdata: {:?}", dev_path);
             let chi_sim = dev_path.join("chi_sim.traineddata");
             if chi_sim.exists() {
                 return Some((dev_path, true));
