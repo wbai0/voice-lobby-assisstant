@@ -36,6 +36,7 @@ pub fn run() {
             auto_message::cmd_stop,
             auto_message::cmd_status,
             auto_message::cmd_test_in_chat,
+            auto_message::cmd_navigate_to_newbie_list,
             // Logs & state
             state::cmd_get_logs,
             state::cmd_clear_logs,

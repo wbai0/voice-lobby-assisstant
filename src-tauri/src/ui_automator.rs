@@ -298,6 +298,42 @@ pub fn is_on_newbie_list_from_xml(xml: &str) -> Result<bool, String> {
     Ok(xml.contains("新星用户萌新榜"))
 }
 
+/// Find "我的" tab button by text
+pub fn find_me_tab(device: &str) -> Result<Option<(i32, i32)>, String> {
+    let xml = dump_ui_hierarchy(device)?;
+    find_me_tab_in_xml(&xml)
+}
+
+/// Find "我的" tab in pre-dumped XML
+pub fn find_me_tab_in_xml(xml: &str) -> Result<Option<(i32, i32)>, String> {
+    // Look for text "我的" which is the tab label
+    if let Some(element) = find_by_text_in_xml(xml, "我的") {
+        let (x, y) = element.bounds.center();
+        eprintln!("[UIAutomator] Found 我的 tab at ({}, {})", x, y);
+        return Ok(Some((x, y)));
+    }
+    eprintln!("[UIAutomator] 我的 tab not found");
+    Ok(None)
+}
+
+/// Find "新星用户榜" menu item by text
+pub fn find_nova_user_list(device: &str) -> Result<Option<(i32, i32)>, String> {
+    let xml = dump_ui_hierarchy(device)?;
+    find_nova_user_list_in_xml(&xml)
+}
+
+/// Find "新星用户榜" in pre-dumped XML
+pub fn find_nova_user_list_in_xml(xml: &str) -> Result<Option<(i32, i32)>, String> {
+    // Look for text "新星用户榜"
+    if let Some(element) = find_by_text_in_xml(xml, "新星用户榜") {
+        let (x, y) = element.bounds.center();
+        eprintln!("[UIAutomator] Found 新星用户榜 at ({}, {})", x, y);
+        return Ok(Some((x, y)));
+    }
+    eprintln!("[UIAutomator] 新星用户榜 not found");
+    Ok(None)
+}
+
 // Tauri commands
 
 /// Tauri command: Test UI Automator - find send button location

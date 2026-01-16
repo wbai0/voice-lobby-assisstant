@@ -73,8 +73,85 @@ fn is_on_chat_page(device: &str) -> bool {
     }
 }
 
+/// Reset to newbie list by navigating through openFeedVc -> 我的 -> 新星用户榜
+/// This is used when we get stuck in an unknown state
+fn reset_to_newbie_list(device: &str, logger: &BgLogger) -> bool {
+    logger.log("🔄 开始重置到新星用户榜...");
+    
+    // Step 1: Open openMessageList route to get to a known state (消息页面)
+    logger.log("跳转到消息页面...");
+    match adb::open_route(device, "openMessageList") {
+        Ok(_) => logger.log("✓ openMessageList 命令已发送"),
+        Err(e) => {
+            logger.log(&format!("⚠ 跳转失败: {}", e));
+            return false;
+        }
+    }
+    
+    // Wait for page to load
+    thread::sleep(Duration::from_secs(3));
+    
+    // Step 2: Find and click "我的" tab using UIAutomator
+    logger.log("查找「我的」Tab...");
+    match ui_automator::find_me_tab(device) {
+        Ok(Some((x, y))) => {
+            logger.log(&format!("点击「我的」({}, {})", x, y));
+            let _ = adb::tap(device, x, y);
+        }
+        Ok(None) => {
+            logger.log("⚠ 未找到「我的」Tab，使用固定坐标...");
+            let screen_size = adb::get_screen_size(device);
+            let x = screen_size.0 * 7 / 8;
+            let y = screen_size.1 * 97 / 100;
+            logger.log(&format!("点击坐标 ({}, {})", x, y));
+            let _ = adb::tap(device, x, y);
+        }
+        Err(e) => {
+            logger.log(&format!("⚠ 查找失败: {}，使用固定坐标", e));
+            let screen_size = adb::get_screen_size(device);
+            let x = screen_size.0 * 7 / 8;
+            let y = screen_size.1 * 97 / 100;
+            let _ = adb::tap(device, x, y);
+        }
+    }
+    
+    // Wait for page to load
+    thread::sleep(Duration::from_secs(2));
+    
+    // Step 3: Find and click "新星用户榜" using UIAutomator
+    logger.log("查找「新星用户榜」...");
+    match ui_automator::find_nova_user_list(device) {
+        Ok(Some((x, y))) => {
+            logger.log(&format!("点击「新星用户榜」({}, {})", x, y));
+            let _ = adb::tap(device, x, y);
+        }
+        Ok(None) => {
+            logger.log("⚠ 未找到「新星用户榜」，使用固定坐标...");
+            let screen_size = adb::get_screen_size(device);
+            let x = screen_size.0 / 2;
+            let y = screen_size.1 * 78 / 100;
+            logger.log(&format!("点击坐标 ({}, {})", x, y));
+            let _ = adb::tap(device, x, y);
+        }
+        Err(e) => {
+            logger.log(&format!("⚠ 查找失败: {}，使用固定坐标", e));
+            let screen_size = adb::get_screen_size(device);
+            let x = screen_size.0 / 2;
+            let y = screen_size.1 * 78 / 100;
+            let _ = adb::tap(device, x, y);
+        }
+    }
+    
+    // Wait for newbie list to load
+    thread::sleep(Duration::from_secs(2));
+    
+    logger.log("✓ 重置到新星用户榜完成");
+    true
+}
+
 /// Smart back navigation - keeps pressing back until send button is gone
 /// Returns true if successfully left chat page, false if failed after max attempts
+/// If all attempts fail, tries to reset to newbie list via openFeedVc -> 我的 -> 新星用户榜
 fn smart_back_to_newbie_list(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
     const MAX_ATTEMPTS: i32 = 5;
     
@@ -95,7 +172,16 @@ fn smart_back_to_newbie_list(device: &str, screen_size: (i32, i32), logger: &BgL
         thread::sleep(Duration::from_millis(500));
     }
     
-    logger.log(&format!("⚠ 返回失败，已尝试{}次", MAX_ATTEMPTS));
+    logger.log(&format!("⚠ 返回失败，已尝试{}次，进入未知状态", MAX_ATTEMPTS));
+    logger.log("尝试通过路由重置到新星用户榜...");
+    
+    // Try to reset to newbie list via route navigation
+    if reset_to_newbie_list(device, logger) {
+        logger.log("✓ 重置成功，继续循环");
+        return true;
+    }
+    
+    logger.log("⚠ 重置失败，无法恢复");
     false
 }
 
@@ -517,5 +603,22 @@ pub fn cmd_status(state: State<'_, AppState>) -> AutoMessageStatus {
         total: *state.auto_message_total.lock().unwrap(),
         current_page: state.current_page.lock().unwrap().clone(),
         ui_detection_in_progress: *state.ui_detection_in_progress.lock().unwrap(),
+    }
+}
+
+/// Navigate to newbie list via openFeedVc -> 我的 -> 新星用户榜
+/// Uses UIAutomator to find and click elements precisely
+#[tauri::command]
+pub fn cmd_navigate_to_newbie_list(state: State<'_, AppState>) -> Result<String, String> {
+    let device = state.connected_device.lock().unwrap()
+        .clone()
+        .ok_or("请先连接 ADB")?;
+    
+    let logger = BgLogger { logs: Arc::clone(&state.logs) };
+    
+    if reset_to_newbie_list(&device, &logger) {
+        Ok("已导航到新星用户榜".to_string())
+    } else {
+        Err("导航失败".to_string())
     }
 }

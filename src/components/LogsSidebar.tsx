@@ -10,9 +10,9 @@ import {
   Input,
   message,
 } from "antd";
-import { ReloadOutlined, ClearOutlined } from "@ant-design/icons";
+import { ReloadOutlined, ClearOutlined, AimOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { logsApi, adbApi } from "../api";
+import { logsApi, adbApi, uiAutomatorApi } from "../api";
 import "./LogsSidebar.css";
 import "../styles/shared.css";
 
@@ -44,21 +44,12 @@ export function LogsSidebar({ connected, isRunning }: LogsSidebarProps) {
     onError: (err: Error) => messageApi.error(`清除日志失败: ${err.message}`),
   });
 
-  const tapMeTab = useMutation({
-    mutationFn: () => adbApi.tapMeTab(),
-    onSuccess: () => messageApi.success("已点击「我的」Tab"),
-    onError: (err: Error) => messageApi.error(err.message),
-  });
-
-  const tapNovaUserList = useMutation({
-    mutationFn: () => adbApi.tapNovaUserList(),
-    onSuccess: () => messageApi.success("已点击「新星用户榜」"),
-    onError: (err: Error) => messageApi.error(err.message),
-  });
-
-  const navigateToNovaList = useMutation({
-    mutationFn: () => adbApi.navigateToNovaList(),
-    onSuccess: () => messageApi.success("已导航到「新星用户榜」"),
+  const navigateToNewbieList = useMutation({
+    mutationFn: () => uiAutomatorApi.navigateToNewbieList(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["logs"] });
+      messageApi.success("已返回新星用户榜");
+    },
     onError: (err: Error) => messageApi.error(err.message),
   });
 
@@ -159,35 +150,16 @@ export function LogsSidebar({ connected, isRunning }: LogsSidebarProps) {
             <Text strong className="text-sm">
               快捷导航
             </Text>
-            <Flex gap={8}>
-              <Button
-                size="small"
-                onClick={() => tapMeTab.mutate()}
-                loading={tapMeTab.isPending}
-                disabled={isRunning}
-                className="flex-1"
-              >
-                我的 Tab
-              </Button>
-              <Button
-                size="small"
-                onClick={() => tapNovaUserList.mutate()}
-                loading={tapNovaUserList.isPending}
-                disabled={isRunning}
-                className="flex-1"
-              >
-                新星榜
-              </Button>
-            </Flex>
             <Button
               size="small"
               type="primary"
-              onClick={() => navigateToNovaList.mutate()}
-              loading={navigateToNovaList.isPending}
+              icon={<AimOutlined />}
+              onClick={() => navigateToNewbieList.mutate()}
+              loading={navigateToNewbieList.isPending}
               disabled={isRunning}
               block
             >
-              一键进入新星用户榜
+              返回新星用户榜
             </Button>
           </Flex>
         </Card>

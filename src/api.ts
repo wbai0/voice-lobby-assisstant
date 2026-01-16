@@ -310,6 +310,16 @@ export const uiAutomatorApi = {
     }
     return { data: "Not in Tauri" };
   },
+
+  navigateToNewbieList: async (): Promise<{
+    data: { success: boolean; message: string };
+  }> => {
+    if (isTauri()) {
+      const message = await invoke<string>("cmd_navigate_to_newbie_list");
+      return { data: { success: true, message } };
+    }
+    return { data: { success: false, message: "Not in Tauri" } };
+  },
 };
 
 export { isTauri };
