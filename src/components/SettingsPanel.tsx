@@ -137,7 +137,7 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
             align="center"
             className="settings-divider"
           >
-            <Text type="secondary">版本 1.0.15</Text>
+            <Text type="secondary">版本 1.0.17</Text>
             {updater.available ? (
               <Button
                 size="small"
