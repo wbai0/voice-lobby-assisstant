@@ -2,12 +2,9 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - "v*"
+      - "v*" # Only build on version tags
 
-# Default permissions - minimal
 permissions:
   contents: read
 
@@ -35,7 +32,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     permissions:
-      contents: write # Only needed for tauri-action to create release on tags
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -63,10 +60,7 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
           cache-on-failure: true
-          # Use shared key so tag builds can restore from main branch cache
           shared-key: ${{ matrix.cache_key }}
-          # Only save cache on main branch to avoid conflicts between parallel builds
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Copy platform ADB (Unix)
         if: matrix.platform != 'windows-latest'
@@ -88,11 +82,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Release build with signing (tags only)
-      # Note: We don't use tauri-action's release feature because we publish to a separate public repo
-      - name: Build Tauri app (release)
-        if: startsWith(github.ref, 'refs/tags/')
-        id: tauri-release
+      - name: Build Tauri app
+        id: tauri-build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,15 +92,7 @@ jobs:
         with:
           args: ${{ matrix.args }} ${{ matrix.platform == 'windows-latest' && '--bundles nsis' || '' }}
 
-      # Cache-warming build without signing (main only)
-      # Uses --no-bundle to skip signing requirement while still compiling Rust code
-      - name: Build Tauri app (cache warming)
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: npm run tauri build -- --no-bundle ${{ matrix.args }}
-
-      - name: Upload artifacts for publish job
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-${{ matrix.cache_key }}
@@ -119,16 +102,13 @@ jobs:
             src-tauri/target/**/release/bundle/**/*.app.tar.gz.sig
             src-tauri/target/**/release/bundle/**/*setup.exe
             src-tauri/target/**/release/bundle/**/*setup.exe.sig
-            src-tauri/target/**/release/bundle/**/*.msi
-            src-tauri/target/**/release/bundle/**/*.msi.sig
-          if-no-files-found: error # Fail if artifacts missing
+          if-no-files-found: error
 
-  publish-to-public:
-    if: startsWith(github.ref, 'refs/tags/')
+  publish:
     needs: build-tauri
     runs-on: ubuntu-latest
     permissions:
-      contents: read # Only needs read; writes to external repo via token
+      contents: read
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -140,6 +120,15 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
+      - name: Check if pre-release
+        id: prerelease
+        run: |
+          if [[ "${{ github.ref_name }}" == *"-"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: List and verify artifacts
         shell: bash
         run: |
@@ -147,7 +136,6 @@ jobs:
           echo "=== All artifacts ==="
           find artifacts -type f -name "Pico*" | sort
 
-          # Verify expected artifacts exist
           echo "=== Verifying artifacts ==="
           AARCH64_TAR=$(find artifacts -path "*aarch64*" -name "*.app.tar.gz" | head -1)
           X64_TAR=$(find artifacts -path "*x86_64*" -name "*.app.tar.gz" | head -1)
@@ -199,12 +187,12 @@ jobs:
           find artifacts -type f -name "Pico*" | sort
 
       - name: Create latest.json for updater
+        if: steps.prerelease.outputs.is_prerelease == 'false'
         shell: bash
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Read signatures (files are already renamed with consistent names)
           AARCH64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz.sig" 2>/dev/null || echo '')
           X64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig" 2>/dev/null || echo '')
           WIN_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64-setup.exe.sig" 2>/dev/null || echo '')
@@ -239,7 +227,7 @@ jobs:
           echo "=== latest.json ==="
           cat latest.json
 
-      - name: Publish to public releases repo
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           repository: wbai0/pico-releases
@@ -247,6 +235,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Pico Live Assistant ${{ github.ref_name }}"
           body: "See the assets to download this version and install."
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
           files: |
             latest.json
             artifacts/**/*.dmg

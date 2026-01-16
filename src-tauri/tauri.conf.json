@@ -37,9 +37,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/adb/*": "adb/",
-      "resources/tesseract-macos/**/*": "tesseract/",
-      "resources/tesseract-windows/**/*": "tesseract/"
+      "resources/adb/*": "adb/"
     },
     "createUpdaterArtifacts": true
   },

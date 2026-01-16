@@ -44,7 +44,10 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
       setUiAutomatorResult(result.data);
       onMessage("success", "UI检测完成");
     },
-    onError: (err: Error) => onMessage("error", `UI检测失败: ${err.message}`),
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      onMessage("error", `UI检测失败: ${message}`);
+    },
   });
 
   return (

@@ -1,33 +1,54 @@
 # Release Process
 
-When creating a new release for the Pico Live Assistant app:
+## Quick Reference
+
+```bash
+# Test locally first
+npm run tauri build
+# Test the app from src-tauri/target/release/bundle/
+
+# Release (stable)
+# 1. Update version in tauri.conf.json and SettingsPanel.tsx
+# 2. Commit and push
+git add -A && git commit -m "release: bump version to X.Y.Z"
+git push
+git tag vX.Y.Z && git push origin vX.Y.Z
+
+# Pre-release (for testing)
+git tag vX.Y.Z-beta.1 && git push origin vX.Y.Z-beta.1
+```
 
 ## Version Sync Checklist
 
 Before tagging a release, ensure ALL version numbers are updated:
 
 1. **tauri.conf.json** - `src-tauri/tauri.conf.json` → `version` field
-   - This determines artifact filenames and updater version
-2. **App.tsx** - `src/App.tsx` → Search for "版本" to find the display version
-   - This is what users see in the settings panel
+2. **SettingsPanel.tsx** - `src/components/SettingsPanel.tsx` → Search for "版本"
 
-## Release Steps
+## Release Types
 
-1. Develop and push to `main` (builds run to warm cache, no release created)
-2. When ready to release:
-   - Update version in `src-tauri/tauri.conf.json`
-   - Update version display in `src/App.tsx`
-   - Commit with message: `release: bump version to X.Y.Z`
-   - Push to main
-   - Create and push tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+### Stable Release (vX.Y.Z)
 
-**Important**: Don't create tags for every small change. Tags trigger full releases. Regular commits to `main` build the cache without creating releases.
+- Triggers full build and publish
+- Updates `latest.json` for auto-updater
+- Users will be notified of update
 
-## Notes
+### Pre-release (vX.Y.Z-beta.N or vX.Y.Z-rc.N)
 
-- Git tag triggers the GitHub Actions build workflow
-- Artifact names come from tauri.conf.json, NOT the git tag
-- The updater uses tauri.conf.json version to determine if updates are available
+- Triggers full build and publish
+- Marked as pre-release on GitHub
+- Does NOT update `latest.json` (users won't auto-update)
+- Use for testing before stable release
+
+## Workflow
+
+1. Develop and test locally with `npm run tauri dev`
+2. Before release, run `npm run tauri build` and test the bundled app
+3. Update version numbers
+4. Commit and push to main
+5. Create and push tag
+
+**Note**: Only tags trigger builds. Pushing to main does NOT trigger a build.
 
 ---
 
