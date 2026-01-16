@@ -99,7 +99,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ matrix.platform == 'windows-latest' && '--bundles nsis' || '' }}
 
       # Cache-warming build without signing (main only)
       # Uses --no-bundle to skip signing requirement while still compiling Rust code
@@ -117,7 +117,7 @@ jobs:
             src-tauri/target/**/release/bundle/**/*.dmg
             src-tauri/target/**/release/bundle/**/*.app.tar.gz
             src-tauri/target/**/release/bundle/**/*.app.tar.gz.sig
-            src-tauri/target/**/release/bundle/**/*.exe
+            src-tauri/target/**/release/bundle/**/*setup.exe
             src-tauri/target/**/release/bundle/**/*.msi
             src-tauri/target/**/release/bundle/**/*.msi.sig
           if-no-files-found: error # Fail if artifacts missing
@@ -184,14 +184,10 @@ jobs:
             mv "$X64_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig"
           fi
 
-          # Rename Windows MSI (replace spaces with dots)
-          WIN_MSI=$(find artifacts -type f -name "*.msi" ! -name "*.sig" | head -1)
-          WIN_MSI_SIG=$(find artifacts -type f -name "*.msi.sig" | head -1)
-          if [ -n "$WIN_MSI" ]; then
-            mv "$WIN_MSI" "artifacts/Pico.Live.Assistant_${VERSION}_x64_en-US.msi"
-          fi
-          if [ -n "$WIN_MSI_SIG" ]; then
-            mv "$WIN_MSI_SIG" "artifacts/Pico.Live.Assistant_${VERSION}_x64_en-US.msi.sig"
+          # Rename Windows NSIS installer (replace spaces with dots)
+          WIN_EXE=$(find artifacts -type f -name "*setup.exe" | head -1)
+          if [ -n "$WIN_EXE" ]; then
+            mv "$WIN_EXE" "artifacts/Pico.Live.Assistant_${VERSION}_x64-setup.exe"
           fi
 
           echo "=== Renamed artifacts ==="
@@ -206,12 +202,13 @@ jobs:
           # Read signatures (files are already renamed with consistent names)
           AARCH64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_aarch64.app.tar.gz.sig" 2>/dev/null || echo '')
           X64_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz.sig" 2>/dev/null || echo '')
-          WIN_SIG=$(cat "artifacts/Pico.Live.Assistant_${VERSION}_x64_en-US.msi.sig" 2>/dev/null || echo '')
+          # Note: NSIS installers don't have signatures like MSI files do
+          WIN_SIG=""
 
           echo "=== Signatures ==="
           echo "AARCH64_SIG length: ${#AARCH64_SIG}"
           echo "X64_SIG length: ${#X64_SIG}"
-          echo "WIN_SIG length: ${#WIN_SIG}"
+          echo "WIN_SIG: (NSIS installer - no signature)"
 
           cat > latest.json << EOF
           {
@@ -229,7 +226,7 @@ jobs:
               },
               "windows-x86_64": {
                 "signature": "${WIN_SIG}",
-                "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64_en-US.msi"
+                "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64-setup.exe"
               }
             }
           }
@@ -251,6 +248,4 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.app.tar.gz
             artifacts/**/*.app.tar.gz.sig
-            artifacts/**/*.exe
-            artifacts/**/*.msi
-            artifacts/**/*.msi.sig
+            artifacts/**/*setup.exe
