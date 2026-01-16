@@ -225,7 +225,6 @@ jobs:
                 "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64.app.tar.gz"
               },
               "windows-x86_64": {
-                "signature": "${WIN_SIG}",
                 "url": "https://github.com/wbai0/pico-releases/releases/download/${{ github.ref_name }}/Pico.Live.Assistant_${VERSION}_x64-setup.exe"
               }
             }
