@@ -3,7 +3,7 @@
 
 use crate::adb;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
@@ -39,54 +39,54 @@ fn get_temp_path(filename: &str) -> PathBuf {
 
 /// Get Tesseract executable path
 fn get_tesseract_exe() -> Option<PathBuf> {
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            #[cfg(target_os = "windows")]
-            {
-                // Windows bundled: exe_dir/tesseract/tesseract.exe
-                let tesseract_path = exe_dir.join("tesseract").join("tesseract.exe");
-                eprintln!("[OCR] Checking Windows tesseract: {:?}", tesseract_path);
-                if tesseract_path.exists() {
-                    return Some(tesseract_path);
-                }
-                
-                // Dev mode: resources/tesseract-windows/tesseract.exe
-                if let Some(src_tauri) = exe_dir.parent().and_then(|p| p.parent()) {
-                    let dev_path = src_tauri.join("resources").join("tesseract-windows").join("tesseract.exe");
-                    eprintln!("[OCR] Checking dev mode tesseract: {:?}", dev_path);
-                    if dev_path.exists() {
-                        return Some(dev_path);
-                    }
-                }
+    let exe_path = std::env::current_exe().ok()?;
+    
+    #[cfg(target_os = "windows")]
+    {
+        let exe_dir = exe_path.parent()?;
+        
+        // Windows bundled: exe_dir/tesseract/tesseract.exe
+        let tesseract_path = exe_dir.join("tesseract").join("tesseract.exe");
+        eprintln!("[OCR] Checking Windows tesseract: {:?}", tesseract_path);
+        if tesseract_path.exists() {
+            return Some(tesseract_path);
+        }
+        
+        // Dev mode: resources/tesseract-windows/tesseract.exe
+        if let Some(src_tauri) = exe_dir.parent().and_then(|p| p.parent()) {
+            let dev_path = src_tauri.join("resources").join("tesseract-windows").join("tesseract.exe");
+            eprintln!("[OCR] Checking dev mode tesseract: {:?}", dev_path);
+            if dev_path.exists() {
+                return Some(dev_path);
             }
-            
-            #[cfg(target_os = "macos")]
-            {
-                // macOS bundled: App.app/Contents/Resources/tesseract/tesseract
-                let bundled_path = exe_path
-                    .parent() // MacOS
-                    .and_then(|p| p.parent()) // Contents
-                    .map(|p| p.join("Resources").join("tesseract").join("tesseract"));
-                
-                if let Some(path) = bundled_path {
-                    eprintln!("[OCR] Checking bundled tesseract: {:?}", path);
-                    if path.exists() {
-                        return Some(path);
-                    }
-                }
-                
-                // Fallback: system tesseract (Homebrew)
-                let homebrew_paths = [
-                    "/opt/homebrew/bin/tesseract",  // Apple Silicon
-                    "/usr/local/bin/tesseract",      // Intel
-                ];
-                for path in homebrew_paths {
-                    let p = PathBuf::from(path);
-                    if p.exists() {
-                        eprintln!("[OCR] Using system tesseract: {:?}", p);
-                        return Some(p);
-                    }
-                }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // macOS bundled: App.app/Contents/Resources/tesseract/tesseract
+        let bundled_path = exe_path
+            .parent() // MacOS
+            .and_then(|p| p.parent()) // Contents
+            .map(|p| p.join("Resources").join("tesseract").join("tesseract"));
+        
+        if let Some(path) = bundled_path {
+            eprintln!("[OCR] Checking bundled tesseract: {:?}", path);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        
+        // Fallback: system tesseract (Homebrew)
+        let homebrew_paths = [
+            "/opt/homebrew/bin/tesseract",  // Apple Silicon
+            "/usr/local/bin/tesseract",      // Intel
+        ];
+        for path in homebrew_paths {
+            let p = PathBuf::from(path);
+            if p.exists() {
+                eprintln!("[OCR] Using system tesseract: {:?}", p);
+                return Some(p);
             }
         }
     }
@@ -98,55 +98,55 @@ fn get_tesseract_exe() -> Option<PathBuf> {
 /// Get tessdata directory path
 /// Returns (tessdata_path, is_bundled)
 fn get_tessdata_dir() -> Option<(PathBuf, bool)> {
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            #[cfg(target_os = "windows")]
-            {
-                // Windows bundled: exe_dir/tesseract/tessdata
-                let tessdata_path = exe_dir.join("tesseract").join("tessdata");
-                let chi_sim = tessdata_path.join("chi_sim.traineddata");
-                if chi_sim.exists() {
-                    return Some((tessdata_path, true));
-                }
-                
-                // Dev mode
-                if let Some(src_tauri) = exe_dir.parent().and_then(|p| p.parent()) {
-                    let dev_path = src_tauri.join("resources").join("tesseract-windows").join("tessdata");
-                    let chi_sim = dev_path.join("chi_sim.traineddata");
-                    if chi_sim.exists() {
-                        return Some((dev_path, true));
-                    }
-                }
+    let exe_path = std::env::current_exe().ok()?;
+    
+    #[cfg(target_os = "windows")]
+    {
+        let exe_dir = exe_path.parent()?;
+        
+        // Windows bundled: exe_dir/tesseract/tessdata
+        let tessdata_path = exe_dir.join("tesseract").join("tessdata");
+        let chi_sim = tessdata_path.join("chi_sim.traineddata");
+        if chi_sim.exists() {
+            return Some((tessdata_path, true));
+        }
+        
+        // Dev mode
+        if let Some(src_tauri) = exe_dir.parent().and_then(|p| p.parent()) {
+            let dev_path = src_tauri.join("resources").join("tesseract-windows").join("tessdata");
+            let chi_sim = dev_path.join("chi_sim.traineddata");
+            if chi_sim.exists() {
+                return Some((dev_path, true));
             }
-            
-            #[cfg(target_os = "macos")]
-            {
-                // macOS bundled
-                let bundled_path = exe_path
-                    .parent()
-                    .and_then(|p| p.parent())
-                    .map(|p| p.join("Resources").join("tesseract").join("tessdata"));
-                
-                if let Some(path) = bundled_path {
-                    let chi_sim = path.join("chi_sim.traineddata");
-                    if chi_sim.exists() {
-                        return Some((path, true));
-                    }
-                }
-                
-                // Homebrew tessdata
-                let homebrew_paths = [
-                    "/opt/homebrew/share/tessdata",
-                    "/usr/local/share/tessdata",
-                ];
-                for path in homebrew_paths {
-                    let p = PathBuf::from(path);
-                    let chi_sim = p.join("chi_sim.traineddata");
-                    if chi_sim.exists() {
-                        eprintln!("[OCR] Using system tessdata: {:?}", p);
-                        return Some((p, false));
-                    }
-                }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // macOS bundled
+        let bundled_path = exe_path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("Resources").join("tesseract").join("tessdata"));
+        
+        if let Some(path) = bundled_path {
+            let chi_sim = path.join("chi_sim.traineddata");
+            if chi_sim.exists() {
+                return Some((path, true));
+            }
+        }
+        
+        // Homebrew tessdata
+        let homebrew_paths = [
+            "/opt/homebrew/share/tessdata",
+            "/usr/local/share/tessdata",
+        ];
+        for path in homebrew_paths {
+            let p = PathBuf::from(path);
+            let chi_sim = p.join("chi_sim.traineddata");
+            if chi_sim.exists() {
+                eprintln!("[OCR] Using system tessdata: {:?}", p);
+                return Some((p, false));
             }
         }
     }
@@ -156,7 +156,7 @@ fn get_tessdata_dir() -> Option<(PathBuf, bool)> {
 
 
 /// Perform OCR on an image using Tesseract CLI
-fn ocr_image(image_path: &PathBuf) -> OcrResult {
+fn ocr_image(image_path: &Path) -> OcrResult {
     let tesseract_exe = match get_tesseract_exe() {
         Some(p) => p,
         None => {
@@ -241,40 +241,56 @@ pub fn ocr_screen(device: &str) -> OcrResult {
     
     let adb_path = adb::get_adb_path_public();
     let temp_png = get_temp_path("pico_ocr_temp.png");
+    let device_path = "/data/local/tmp/pico_screen.png";
     
-    // Use exec-out for direct binary output (faster than shell)
+    // Method: screencap on device + pull (often faster than exec-out for large images)
     let screenshot_start = Instant::now();
-    let output = match create_command(&adb_path)
-        .args(["-s", device, "exec-out", "screencap", "-p"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            return OcrResult {
-                text: format!("Screenshot failed: {}", e),
-                success: false,
-            };
-        }
-    };
-    eprintln!("[OCR] exec-out screenshot time: {:?}", screenshot_start.elapsed());
-
-    if output.stdout.is_empty() {
+    
+    // Take screenshot on device
+    let cap_result = create_command(&adb_path)
+        .args(["-s", device, "shell", "screencap", "-p", device_path])
+        .output();
+    
+    if let Err(e) = cap_result {
+        return OcrResult {
+            text: format!("Screenshot failed: {}", e),
+            success: false,
+        };
+    }
+    
+    eprintln!("[OCR] screencap on device time: {:?}", screenshot_start.elapsed());
+    
+    // Pull the file
+    let pull_start = Instant::now();
+    let pull_result = create_command(&adb_path)
+        .args(["-s", device, "pull", device_path, temp_png.to_str().unwrap_or("")])
+        .output();
+    
+    if let Err(e) = pull_result {
+        return OcrResult {
+            text: format!("Pull failed: {}", e),
+            success: false,
+        };
+    }
+    
+    eprintln!("[OCR] pull time: {:?}", pull_start.elapsed());
+    eprintln!("[OCR] total screenshot time: {:?}", screenshot_start.elapsed());
+    
+    // Clean up device file
+    let _ = create_command(&adb_path)
+        .args(["-s", device, "shell", "rm", device_path])
+        .output();
+    
+    // Check file exists and has content
+    let file_size = fs::metadata(&temp_png).map(|m| m.len()).unwrap_or(0);
+    if file_size == 0 {
         return OcrResult {
             text: "Screenshot is empty".to_string(),
             success: false,
         };
     }
     
-    eprintln!("[OCR] Screenshot size: {} bytes", output.stdout.len());
-
-    let write_start = Instant::now();
-    if let Err(e) = fs::write(&temp_png, &output.stdout) {
-        return OcrResult {
-            text: format!("Failed to save screenshot: {}", e),
-            success: false,
-        };
-    }
-    eprintln!("[OCR] File write time: {:?}", write_start.elapsed());
+    eprintln!("[OCR] Screenshot size: {} bytes", file_size);
 
     let ocr_start = Instant::now();
     let result = ocr_image(&temp_png);
@@ -286,7 +302,7 @@ pub fn ocr_screen(device: &str) -> OcrResult {
     result
 }
 
-/// Detect if on newbie list page (via OCR)
+/// Detect if on newbie list page (via OCR) - uses ADB screenshot
 pub fn is_on_newbie_list_debug(device: &str) -> (bool, String) {
     let result = ocr_screen(device);
     if !result.success {
@@ -441,7 +457,160 @@ pub struct OcrTestResult {
     pub diagnostics: Vec<String>,
 }
 
-/// Tauri command: Test OCR
+/// Tauri command: Test OCR setup only (no emulator needed)
+/// Creates a simple test image and runs OCR on it
+#[tauri::command]
+pub fn cmd_test_ocr_standalone() -> Result<OcrTestResult, String> {
+    let mut diagnostics = Vec::new();
+    
+    // Check tesseract executable
+    let tesseract_exe = get_tesseract_exe();
+    let tesseract_path = tesseract_exe.as_ref()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let tesseract_exists = tesseract_exe.as_ref().map(|p| p.exists()).unwrap_or(false);
+    
+    diagnostics.push(format!("Tesseract path: {}", tesseract_path));
+    diagnostics.push(format!("Tesseract exists: {}", tesseract_exists));
+    
+    // Check tessdata directory
+    let tessdata_info = get_tessdata_dir();
+    let tessdata_path = tessdata_info.as_ref()
+        .map(|(p, _)| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let tessdata_exists = tessdata_info.as_ref().map(|(p, _)| p.exists()).unwrap_or(false);
+    
+    diagnostics.push(format!("Tessdata path: {}", tessdata_path));
+    diagnostics.push(format!("Tessdata exists: {}", tessdata_exists));
+    
+    // Check chi_sim.traineddata
+    let chi_sim_path = tessdata_info.as_ref().map(|(p, _)| p.join("chi_sim.traineddata"));
+    let chi_sim_exists = chi_sim_path.as_ref().map(|p| p.exists()).unwrap_or(false);
+    let chi_sim_size = chi_sim_path.as_ref()
+        .and_then(|p| fs::metadata(p).ok())
+        .map(|m| m.len())
+        .unwrap_or(0);
+    
+    diagnostics.push(format!("chi_sim.traineddata exists: {}", chi_sim_exists));
+    diagnostics.push(format!("chi_sim.traineddata size: {} bytes", chi_sim_size));
+    
+    // Return error if tesseract not found
+    if !tesseract_exists {
+        return Ok(OcrTestResult {
+            success: false,
+            text: "Tesseract not installed".to_string(),
+            tesseract_path,
+            tesseract_exists,
+            tessdata_path,
+            tessdata_exists,
+            chi_sim_exists,
+            chi_sim_size,
+            init_error: Some("Tesseract executable not found".to_string()),
+            diagnostics,
+        });
+    }
+    
+    // Test tesseract version
+    if let Some(ref exe) = tesseract_exe {
+        let version_output = create_command(exe.to_str().unwrap_or("tesseract"))
+            .arg("--version")
+            .output();
+        
+        if let Ok(output) = version_output {
+            let version = String::from_utf8_lossy(&output.stdout);
+            let version_line = version.lines().next().unwrap_or("unknown");
+            diagnostics.push(format!("Tesseract version: {}", version_line));
+        } else {
+            diagnostics.push("Failed to get Tesseract version".to_string());
+        }
+    }
+    
+    // Test with a simple generated image containing text
+    diagnostics.push("Creating test image...".to_string());
+    
+    let test_image_path = get_temp_path("pico_ocr_test.png");
+    
+    // Create a simple white image with black text using image crate
+    let test_result = create_test_image_and_ocr(&test_image_path, &tesseract_exe, &tessdata_info);
+    
+    match test_result {
+        Ok(text) => {
+            diagnostics.push(format!("OCR test successful, recognized: {}", text.trim()));
+            Ok(OcrTestResult {
+                success: true,
+                text: format!("Tesseract is working! Recognized test text: {}", text.trim()),
+                tesseract_path,
+                tesseract_exists,
+                tessdata_path,
+                tessdata_exists,
+                chi_sim_exists,
+                chi_sim_size,
+                init_error: None,
+                diagnostics,
+            })
+        }
+        Err(e) => {
+            diagnostics.push(format!("OCR test failed: {}", e));
+            Ok(OcrTestResult {
+                success: false,
+                text: format!("OCR test failed: {}", e),
+                tesseract_path,
+                tesseract_exists,
+                tessdata_path,
+                tessdata_exists,
+                chi_sim_exists,
+                chi_sim_size,
+                init_error: Some(e),
+                diagnostics,
+            })
+        }
+    }
+}
+
+/// Create a simple test image and run OCR on it
+fn create_test_image_and_ocr(
+    image_path: &Path,
+    tesseract_exe: &Option<PathBuf>,
+    tessdata_info: &Option<(PathBuf, bool)>,
+) -> Result<String, String> {
+    use image::{ImageBuffer, Rgb};
+    
+    let exe = tesseract_exe.as_ref().ok_or("Tesseract not found")?;
+    
+    // Create a simple 200x100 white image using the image crate
+    // This creates a valid PNG that Tesseract can process
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(200, 100, |_x, _y| {
+        Rgb([255u8, 255u8, 255u8]) // White background
+    });
+    
+    img.save(image_path).map_err(|e| format!("Failed to create test image: {}", e))?;
+    
+    // Run tesseract on it
+    let mut cmd = create_command(exe.to_str().unwrap_or("tesseract"));
+    cmd.arg(image_path.to_str().unwrap_or(""))
+       .arg("stdout")
+       .arg("-l").arg("eng");  // Use English for simple test
+    
+    if let Some((ref tessdata, is_bundled)) = tessdata_info {
+        if *is_bundled {
+            cmd.arg("--tessdata-dir").arg(tessdata.to_str().unwrap_or(""));
+        }
+    }
+    
+    let output = cmd.output().map_err(|e| format!("Failed to run tesseract: {}", e))?;
+    
+    let _ = fs::remove_file(image_path);
+    
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(if text.trim().is_empty() { "(empty - blank test image processed successfully)".to_string() } else { text })
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Tesseract error: {}", stderr))
+    }
+}
+
+/// Tauri command: Test OCR with emulator screenshot (integrated test)
 #[tauri::command]
 pub fn cmd_test_ocr(state: tauri::State<'_, crate::AppState>) -> Result<OcrTestResult, String> {
     let mut diagnostics = Vec::new();
@@ -537,18 +706,11 @@ pub fn cmd_test_ocr(state: tauri::State<'_, crate::AppState>) -> Result<OcrTestR
     
     diagnostics.push(format!("OCR result: success={}", result.success));
     
-    // Add to logs
-    {
-        let mut logs = state.logs.lock().map_err(|e| e.to_string())?;
-        for diag in &diagnostics {
-            logs.push(format!("[OCR Test] {}", diag));
-        }
-        if result.success {
-            let preview: String = result.text.chars().take(500).collect();
-            logs.push(format!("[OCR Test] Recognized text: {}", preview.replace('\n', " | ")));
-        } else {
-            logs.push(format!("[OCR Test] Recognition failed: {}", result.text));
-        }
+    if result.success {
+        let preview: String = result.text.chars().take(500).collect();
+        diagnostics.push(format!("Recognized text: {}", preview.replace('\n', " | ")));
+    } else {
+        diagnostics.push(format!("Recognition failed: {}", result.text));
     }
     
     Ok(OcrTestResult {

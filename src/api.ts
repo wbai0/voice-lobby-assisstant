@@ -305,6 +305,8 @@ export const autoMessageApi = {
 export interface OcrTestResult {
   success: boolean;
   text: string;
+  tesseract_path: string;
+  tesseract_exists: boolean;
   tessdata_path: string;
   tessdata_exists: boolean;
   chi_sim_exists: boolean;
@@ -315,6 +317,7 @@ export interface OcrTestResult {
 
 // OCR API
 export const ocrApi = {
+  // Test OCR with emulator screenshot (requires connected device)
   test: async (): Promise<{ data: OcrTestResult }> => {
     if (isTauri()) {
       const data = await invoke<OcrTestResult>("cmd_test_ocr");
@@ -324,6 +327,30 @@ export const ocrApi = {
       data: {
         success: false,
         text: "Not in Tauri",
+        tesseract_path: "",
+        tesseract_exists: false,
+        tessdata_path: "",
+        tessdata_exists: false,
+        chi_sim_exists: false,
+        chi_sim_size: 0,
+        init_error: "Not in Tauri environment",
+        diagnostics: [],
+      },
+    };
+  },
+
+  // Test OCR setup only (no emulator needed)
+  testStandalone: async (): Promise<{ data: OcrTestResult }> => {
+    if (isTauri()) {
+      const data = await invoke<OcrTestResult>("cmd_test_ocr_standalone");
+      return { data };
+    }
+    return {
+      data: {
+        success: false,
+        text: "Not in Tauri",
+        tesseract_path: "",
+        tesseract_exists: false,
         tessdata_path: "",
         tessdata_exists: false,
         chi_sim_exists: false,

@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { Card, Flex, Tag, Typography, Space, Input, Button, Modal } from "antd";
-import { CloudDownloadOutlined, EyeOutlined } from "@ant-design/icons";
+import {
+  CloudDownloadOutlined,
+  EyeOutlined,
+  ToolOutlined,
+} from "@ant-design/icons";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { adbApi, ocrApi } from "../api";
+import type { OcrTestResult } from "../api";
 import { useUpdater } from "../useUpdater";
 import "./SettingsPanel.css";
 import "../styles/shared.css";
@@ -19,18 +24,7 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
   const [customAdbPath, setCustomAdbPath] = useState("");
   const [ocrDiagModal, setOcrDiagModal] = useState<{
     open: boolean;
-    result: {
-      success: boolean;
-      text: string;
-      tesseract_path: string;
-      tesseract_exists: boolean;
-      tessdata_path: string;
-      tessdata_exists: boolean;
-      chi_sim_exists: boolean;
-      chi_sim_size: number;
-      init_error: string | null;
-      diagnostics: string[];
-    } | null;
+    result: OcrTestResult | null;
   }>({ open: false, result: null });
 
   const { data: adbInfo } = useQuery({
@@ -52,13 +46,21 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
   const testOcr = useMutation({
     mutationFn: ocrApi.test,
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ["logs"] });
       if (result.data.success) {
         onMessage("success", "OCR 测试成功");
-        // 成功时也可以查看详情
+      }
+      setOcrDiagModal({ open: true, result: result.data });
+    },
+    onError: (err: Error) => onMessage("error", `OCR 测试失败: ${err.message}`),
+  });
+
+  const testOcrStandalone = useMutation({
+    mutationFn: ocrApi.testStandalone,
+    onSuccess: (result) => {
+      if (result.data.success) {
+        onMessage("success", "OCR 设置正常");
         setOcrDiagModal({ open: true, result: result.data });
       } else {
-        // 失败时显示详细诊断
         setOcrDiagModal({ open: true, result: result.data });
       }
     },
@@ -108,14 +110,26 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
             className="settings-divider"
           >
             <Text type="secondary">OCR</Text>
-            <Button
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => testOcr.mutate()}
-              loading={testOcr.isPending}
-            >
-              测试 OCR
-            </Button>
+            <Space size="small">
+              <Button
+                size="small"
+                icon={<ToolOutlined />}
+                onClick={() => testOcrStandalone.mutate()}
+                loading={testOcrStandalone.isPending}
+                title="测试 Tesseract 是否正确安装（无需模拟器）"
+              >
+                测试设置
+              </Button>
+              <Button
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => testOcr.mutate()}
+                loading={testOcr.isPending}
+                title="截图并识别（需要连接模拟器）"
+              >
+                测试识别
+              </Button>
+            </Space>
           </Flex>
 
           <Flex
