@@ -388,111 +388,23 @@ pub enum PageType {
     Unknown,     // 无法识别
 }
 
-/// Detect current page by checking top area color
-/// Returns PageType based on the color at top-center of screen
+/// Detect current page using UI Automator
+/// Returns PageType based on UI elements found
 pub fn detect_page(device: &str) -> PageType {
-    let adb = get_adb_path();
-    
-    // Take screenshot and get raw bytes
-    let output = match create_command(&adb)
-        .args(["-s", device, "shell", "screencap", "-p"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return PageType::Unknown,
-    };
-    
-    if output.stdout.is_empty() {
-        return PageType::Unknown;
-    }
-    
-    // Fix line endings (adb on some devices converts \n to \r\n)
-    let png_data: Vec<u8> = output.stdout
-        .windows(2)
-        .filter(|w| !(w[0] == 0x0d && w[1] == 0x0a))
-        .map(|w| w[0])
-        .chain(std::iter::once(*output.stdout.last().unwrap_or(&0)))
-        .collect();
-    
-    // Decode PNG
-    let img = match image::load_from_memory(&png_data) {
-        Ok(img) => img,
-        Err(_) => {
-            // Try original data without fix
-            match image::load_from_memory(&output.stdout) {
-                Ok(img) => img,
-                Err(_) => return PageType::Unknown,
+    // Use UI Automator to detect page
+    match crate::ui_automator::dump_ui_hierarchy(device) {
+        Ok(xml) => {
+            // Check for newbie list title
+            if xml.contains("新星用户萌新榜") {
+                return PageType::NewbieList;
             }
+            // Check for chat page elements
+            if xml.contains("com.pico.live:id/tvSend") && xml.contains("com.pico.live:id/etInput") {
+                return PageType::Chat;
+            }
+            PageType::Unknown
         }
-    };
-    
-    let rgb = img.to_rgb8();
-    let (width, height) = rgb.dimensions();
-    
-    // Sample multiple points for better detection
-    // Point 1: Top center (for header color)
-    let top_y = height / 20; // 5% from top
-    let top_pixel = rgb.get_pixel(width / 2, top_y);
-    let top_r = top_pixel[0];
-    let top_g = top_pixel[1];
-    let top_b = top_pixel[2];
-    
-    // Point 2: Title area (about 8% from top, where "新星用户萌新榜" would be)
-    let title_y = height * 8 / 100;
-    let title_pixel = rgb.get_pixel(width / 2, title_y);
-    let title_r = title_pixel[0];
-    let title_g = title_pixel[1];
-    let title_b = title_pixel[2];
-    
-    // Point 3: Check for input box area (about 90% from top)
-    // Chat page input box is usually white/light gray
-    let input_y = height * 90 / 100;
-    let input_pixel = rgb.get_pixel(width / 2, input_y);
-    let input_r = input_pixel[0];
-    let input_g = input_pixel[1];
-    let input_b = input_pixel[2];
-    
-    // Debug: log the colors (can be removed later)
-    // println!("Top: ({}, {}, {}), Title: ({}, {}, {}), List: ({}, {}, {})", 
-    //     top_r, top_g, top_b, title_r, title_g, title_b, list_r, list_g, list_b);
-    
-    // Detection logic:
-    // 1. Newbie list: orange/yellow gradient at top AND title area
-    //    - Top area has high R (>200), medium G (100-200), low B (<150)
-    //    - Title area also has orange tint
-    let is_orange_top = top_r > 200 && top_g > 100 && top_g < 220 && top_b < 180;
-    let is_orange_title = title_r > 200 && title_g > 100 && title_b < 180;
-    
-    // 2. Chat page: has input box at bottom (white/light area around 90% height)
-    //    - Input area is white/light gray
-    //    - Top can be white or light purple
-    let is_white_top = top_r > 230 && top_g > 230 && top_b > 230;
-    let is_light_purple_top = top_r > 200 && top_b > 200 && top_g > 180 && top_g < 240;
-    let has_input_box = input_r > 230 && input_g > 230 && input_b > 230;
-    
-    // 3. Profile/other pages: gradient purple/pink at top with specific pattern
-    let is_dark_purple_gradient = top_r > 150 && top_r < 220 && top_b > 150 && top_g < 180;
-    
-    if is_orange_top && is_orange_title {
-        // Strong orange at both top and title = Newbie list
-        PageType::NewbieList
-    } else if is_orange_top || is_orange_title {
-        // Orange at either location = likely Newbie list
-        PageType::NewbieList
-    } else if (is_white_top || is_light_purple_top) && has_input_box {
-        // White/purple top WITH input box = Chat page
-        PageType::Chat
-    } else if is_dark_purple_gradient {
-        // Dark purple/pink gradient = Profile or other page
-        PageType::Unknown
-    } else if is_white_top && !has_input_box {
-        // White top WITHOUT input box = Message list or other page (NOT chat)
-        PageType::Unknown
-    } else if is_light_purple_top && has_input_box {
-        // Light purple with input = Chat
-        PageType::Chat
-    } else {
-        PageType::Unknown
+        Err(_) => PageType::Unknown,
     }
 }
 

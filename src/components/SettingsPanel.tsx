@@ -1,13 +1,8 @@
 import { useState } from "react";
-import { Card, Flex, Tag, Typography, Space, Input, Button, Modal } from "antd";
-import {
-  CloudDownloadOutlined,
-  EyeOutlined,
-  ToolOutlined,
-} from "@ant-design/icons";
+import { Card, Flex, Tag, Typography, Space, Input, Button } from "antd";
+import { CloudDownloadOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { adbApi, ocrApi } from "../api";
-import type { OcrTestResult } from "../api";
+import { adbApi, uiAutomatorApi } from "../api";
 import { useUpdater } from "../useUpdater";
 import "./SettingsPanel.css";
 import "../styles/shared.css";
@@ -22,10 +17,6 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
   const qc = useQueryClient();
   const updater = useUpdater();
   const [customAdbPath, setCustomAdbPath] = useState("");
-  const [ocrDiagModal, setOcrDiagModal] = useState<{
-    open: boolean;
-    result: OcrTestResult | null;
-  }>({ open: false, result: null });
 
   const { data: adbInfo } = useQuery({
     queryKey: ["adbInfo"],
@@ -43,212 +34,118 @@ export function SettingsPanel({ onMessage }: SettingsPanelProps) {
       onMessage("error", `设置ADB路径失败: ${err.message}`),
   });
 
-  const testOcr = useMutation({
-    mutationFn: ocrApi.test,
-    onSuccess: (result) => {
-      if (result.data.success) {
-        onMessage("success", "OCR 测试成功");
-      }
-      setOcrDiagModal({ open: true, result: result.data });
-    },
-    onError: (err: Error) => onMessage("error", `OCR 测试失败: ${err.message}`),
-  });
+  const [uiAutomatorResult, setUiAutomatorResult] = useState<string | null>(
+    null
+  );
 
-  const testOcrStandalone = useMutation({
-    mutationFn: ocrApi.testStandalone,
+  const testUiAutomator = useMutation({
+    mutationFn: uiAutomatorApi.test,
     onSuccess: (result) => {
-      if (result.data.success) {
-        onMessage("success", "OCR 设置正常");
-        setOcrDiagModal({ open: true, result: result.data });
-      } else {
-        setOcrDiagModal({ open: true, result: result.data });
-      }
+      setUiAutomatorResult(result.data);
+      onMessage("success", "UI检测完成");
     },
-    onError: (err: Error) => onMessage("error", `OCR 测试失败: ${err.message}`),
+    onError: (err: Error) => onMessage("error", `UI检测失败: ${err.message}`),
   });
 
   return (
-    <>
-      <Card size="small">
-        <Flex vertical gap={8}>
-          <Flex justify="space-between" align="center">
-            <Text type="secondary">ADB</Text>
-            <Tag
-              color={adbInfo?.data?.found ? "success" : "error"}
-              className="tag-no-margin"
-            >
-              {adbInfo?.data?.found ? "OK" : "未找到"}
-            </Tag>
-          </Flex>
+    <Card size="small">
+      <Flex vertical gap={8}>
+        <Flex justify="space-between" align="center">
+          <Text type="secondary">ADB</Text>
+          <Tag
+            color={adbInfo?.data?.found ? "success" : "error"}
+            className="tag-no-margin"
+          >
+            {adbInfo?.data?.found ? "OK" : "未找到"}
+          </Tag>
+        </Flex>
+        <Text type="secondary" className="text-xs text-break">
+          路径: {adbInfo?.data?.path || "未知"}
+        </Text>
+        {adbInfo?.data?.bundled_path && (
           <Text type="secondary" className="text-xs text-break">
-            路径: {adbInfo?.data?.path || "未知"}
+            打包路径: {adbInfo.data.bundled_path}
           </Text>
-          {adbInfo?.data?.bundled_path && (
-            <Text type="secondary" className="text-xs text-break">
-              打包路径: {adbInfo.data.bundled_path}
-            </Text>
-          )}
-          <Space.Compact className="w-full">
-            <Input
-              size="small"
-              placeholder="自定义路径"
-              value={customAdbPath}
-              onChange={(e) => setCustomAdbPath(e.target.value)}
-            />
+        )}
+        <Space.Compact className="w-full">
+          <Input
+            size="small"
+            placeholder="自定义路径"
+            value={customAdbPath}
+            onChange={(e) => setCustomAdbPath(e.target.value)}
+          />
+          <Button size="small" onClick={() => setAdbPath.mutate(customAdbPath)}>
+            设置
+          </Button>
+        </Space.Compact>
+
+        {/* UI Automator 测试 */}
+        <Flex
+          justify="space-between"
+          align="center"
+          className="settings-divider"
+        >
+          <Text type="secondary">UI检测</Text>
+          <Button
+            size="small"
+            onClick={() => testUiAutomator.mutate()}
+            loading={testUiAutomator.isPending}
+            title="使用 UI Automator 检测发送按钮位置"
+          >
+            测试检测
+          </Button>
+        </Flex>
+        {uiAutomatorResult && (
+          <div
+            style={{
+              background: "#f5f5f5",
+              padding: 8,
+              borderRadius: 4,
+              fontSize: 11,
+              fontFamily: "monospace",
+              whiteSpace: "pre-wrap",
+              maxHeight: 150,
+              overflow: "auto",
+            }}
+          >
+            {uiAutomatorResult}
+          </div>
+        )}
+
+        <Flex
+          justify="space-between"
+          align="center"
+          className="settings-divider"
+        >
+          <Text type="secondary">版本 1.0.17</Text>
+          {updater.available ? (
             <Button
               size="small"
-              onClick={() => setAdbPath.mutate(customAdbPath)}
+              type="primary"
+              icon={<CloudDownloadOutlined />}
+              onClick={() => updater.downloadAndInstall()}
+              loading={updater.downloading}
             >
-              设置
+              {updater.downloading
+                ? `${updater.progress}%`
+                : `更新到 ${updater.version}`}
             </Button>
-          </Space.Compact>
-
-          {/* OCR 测试 */}
-          <Flex
-            justify="space-between"
-            align="center"
-            className="settings-divider"
-          >
-            <Text type="secondary">OCR</Text>
-            <Space size="small">
-              <Button
-                size="small"
-                icon={<ToolOutlined />}
-                onClick={() => testOcrStandalone.mutate()}
-                loading={testOcrStandalone.isPending}
-                title="测试 Tesseract 是否正确安装（无需模拟器）"
-              >
-                测试设置
-              </Button>
-              <Button
-                size="small"
-                icon={<EyeOutlined />}
-                onClick={() => testOcr.mutate()}
-                loading={testOcr.isPending}
-                title="截图并识别（需要连接模拟器）"
-              >
-                测试识别
-              </Button>
-            </Space>
-          </Flex>
-
-          <Flex
-            justify="space-between"
-            align="center"
-            className="settings-divider"
-          >
-            <Text type="secondary">版本 1.0.17</Text>
-            {updater.available ? (
-              <Button
-                size="small"
-                type="primary"
-                icon={<CloudDownloadOutlined />}
-                onClick={() => updater.downloadAndInstall()}
-                loading={updater.downloading}
-              >
-                {updater.downloading
-                  ? `${updater.progress}%`
-                  : `更新到 ${updater.version}`}
-              </Button>
-            ) : (
-              <Button
-                size="small"
-                loading={updater.checking}
-                onClick={async () => {
-                  const hasUpdate = await updater.checkForUpdates();
-                  if (!hasUpdate) {
-                    onMessage("success", "已是最新版本");
-                  }
-                }}
-              >
-                {updater.checking ? "检查中..." : "检查更新"}
-              </Button>
-            )}
-          </Flex>
-        </Flex>
-      </Card>
-
-      {/* OCR 诊断结果弹窗 */}
-      <Modal
-        title={
-          ocrDiagModal.result?.success ? "✅ OCR 测试成功" : "❌ OCR 测试失败"
-        }
-        open={ocrDiagModal.open}
-        onCancel={() => setOcrDiagModal({ open: false, result: null })}
-        footer={[
-          <Button
-            key="close"
-            onClick={() => setOcrDiagModal({ open: false, result: null })}
-          >
-            关闭
-          </Button>,
-        ]}
-        width={600}
-      >
-        {ocrDiagModal.result && (
-          <Flex vertical gap={8}>
-            <Text strong>诊断信息:</Text>
-            <div
-              style={{
-                background: "#f5f5f5",
-                padding: 12,
-                borderRadius: 4,
-                maxHeight: 300,
-                overflow: "auto",
-                fontFamily: "monospace",
-                fontSize: 12,
+          ) : (
+            <Button
+              size="small"
+              loading={updater.checking}
+              onClick={async () => {
+                const hasUpdate = await updater.checkForUpdates();
+                if (!hasUpdate) {
+                  onMessage("success", "已是最新版本");
+                }
               }}
             >
-              {ocrDiagModal.result.diagnostics.map((line, i) => (
-                <div
-                  key={i}
-                  style={{
-                    color: line.startsWith("✓")
-                      ? "green"
-                      : line.startsWith("✗")
-                      ? "red"
-                      : "inherit",
-                  }}
-                >
-                  {line}
-                </div>
-              ))}
-            </div>
-
-            {ocrDiagModal.result.init_error && (
-              <>
-                <Text strong type="danger">
-                  初始化错误:
-                </Text>
-                <Text
-                  type="danger"
-                  style={{ fontFamily: "monospace", fontSize: 12 }}
-                >
-                  {ocrDiagModal.result.init_error}
-                </Text>
-              </>
-            )}
-
-            {ocrDiagModal.result.success && ocrDiagModal.result.text && (
-              <>
-                <Text strong>识别文字 (前500字):</Text>
-                <div
-                  style={{
-                    background: "#f5f5f5",
-                    padding: 12,
-                    borderRadius: 4,
-                    maxHeight: 150,
-                    overflow: "auto",
-                    fontSize: 12,
-                  }}
-                >
-                  {ocrDiagModal.result.text.slice(0, 500)}
-                </div>
-              </>
-            )}
-          </Flex>
-        )}
-      </Modal>
-    </>
+              {updater.checking ? "检查中..." : "检查更新"}
+            </Button>
+          )}
+        </Flex>
+      </Flex>
+    </Card>
   );
 }

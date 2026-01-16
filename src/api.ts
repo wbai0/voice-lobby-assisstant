@@ -250,7 +250,7 @@ export const autoMessageApi = {
       processed: number;
       total: number;
       current_page: string;
-      ocr_in_progress: boolean;
+      ui_detection_in_progress: boolean;
     };
   }> => {
     if (isTauri()) {
@@ -259,7 +259,7 @@ export const autoMessageApi = {
         processed: number;
         total: number;
         current_page: string;
-        ocr_in_progress: boolean;
+        ui_detection_in_progress: boolean;
       }>("cmd_status");
       return { data };
     }
@@ -269,7 +269,7 @@ export const autoMessageApi = {
         processed: 0,
         total: 0,
         current_page: "unknown",
-        ocr_in_progress: false,
+        ui_detection_in_progress: false,
       },
     };
   },
@@ -301,64 +301,14 @@ export const autoMessageApi = {
   },
 };
 
-// OCR Test Result type
-export interface OcrTestResult {
-  success: boolean;
-  text: string;
-  tesseract_path: string;
-  tesseract_exists: boolean;
-  tessdata_path: string;
-  tessdata_exists: boolean;
-  chi_sim_exists: boolean;
-  chi_sim_size: number;
-  init_error: string | null;
-  diagnostics: string[];
-}
-
-// OCR API
-export const ocrApi = {
-  // Test OCR with emulator screenshot (requires connected device)
-  test: async (): Promise<{ data: OcrTestResult }> => {
+// UI Automator API
+export const uiAutomatorApi = {
+  test: async (): Promise<{ data: string }> => {
     if (isTauri()) {
-      const data = await invoke<OcrTestResult>("cmd_test_ocr");
+      const data = await invoke<string>("cmd_test_ui_automator");
       return { data };
     }
-    return {
-      data: {
-        success: false,
-        text: "Not in Tauri",
-        tesseract_path: "",
-        tesseract_exists: false,
-        tessdata_path: "",
-        tessdata_exists: false,
-        chi_sim_exists: false,
-        chi_sim_size: 0,
-        init_error: "Not in Tauri environment",
-        diagnostics: [],
-      },
-    };
-  },
-
-  // Test OCR setup only (no emulator needed)
-  testStandalone: async (): Promise<{ data: OcrTestResult }> => {
-    if (isTauri()) {
-      const data = await invoke<OcrTestResult>("cmd_test_ocr_standalone");
-      return { data };
-    }
-    return {
-      data: {
-        success: false,
-        text: "Not in Tauri",
-        tesseract_path: "",
-        tesseract_exists: false,
-        tessdata_path: "",
-        tessdata_exists: false,
-        chi_sim_exists: false,
-        chi_sim_size: 0,
-        init_error: "Not in Tauri environment",
-        diagnostics: [],
-      },
-    };
+    return { data: "Not in Tauri" };
   },
 };
 

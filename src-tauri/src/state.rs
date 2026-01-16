@@ -17,8 +17,8 @@ pub struct AppState {
     pub session_id: Arc<Mutex<u64>>,
     /// Current detected page type (updated during auto message)
     pub current_page: Arc<Mutex<String>>,
-    /// Whether OCR is currently running
-    pub ocr_in_progress: Arc<Mutex<bool>>,
+    /// Whether UI detection is currently running
+    pub ui_detection_in_progress: Arc<Mutex<bool>>,
 }
 
 impl Default for AppState {
@@ -34,7 +34,7 @@ impl Default for AppState {
             screen_size: Mutex::new(None),
             session_id: Arc::new(Mutex::new(0)),
             current_page: Arc::new(Mutex::new("unknown".to_string())),
-            ocr_in_progress: Arc::new(Mutex::new(false)),
+            ui_detection_in_progress: Arc::new(Mutex::new(false)),
         }
     }
 }
@@ -58,7 +58,7 @@ pub struct AutoMessageStatus {
     pub processed: usize,
     pub total: usize,
     pub current_page: String,
-    pub ocr_in_progress: bool,
+    pub ui_detection_in_progress: bool,
 }
 
 // Log commands

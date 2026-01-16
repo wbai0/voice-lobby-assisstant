@@ -1,6 +1,6 @@
 use crate::adb::{self, PageType};
-use crate::ocr;
 use crate::state::{AppState, AutoMessageStatus};
+use crate::ui_automator;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -23,7 +23,7 @@ fn create_command(program: &str) -> std::process::Command {
     cmd
 }
 
-// Cached UI element coordinates (found via UIAutomator on first use)
+// Cached UI element coordinates (found via UIAutomator on first chat entry per cycle)
 static CACHED_SEND_BUTTON: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static CACHED_INPUT_BOX: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 
@@ -53,13 +53,9 @@ impl BgLogger {
     }
 }
 
-/// Click the first "撩" button on the newbie list
+/// Click the first "撩" button on the newbie list (fixed coordinates)
 fn click_liao_button(device: &str, screen_size: (i32, i32), _logger: &BgLogger) -> bool {
-    let (screen_w, screen_h) = screen_size;
-    let scale_x = screen_w as f64 / 2160.0;
-    let scale_y = screen_h as f64 / 3840.0;
-    let btn_x = (1692.0 * scale_x) as i32;
-    let btn_y = (842.0 * scale_y) as i32;
+    let (btn_x, btn_y) = scale_coords(1692, 690, screen_size);
     let _ = adb::tap(device, btn_x, btn_y);
     true
 }
@@ -69,8 +65,16 @@ fn click_back_button(device: &str, _screen_size: (i32, i32)) {
     let _ = adb::press_back(device);
 }
 
-/// Smart back navigation - keeps pressing back until we're on the newbie list
-/// Returns true if successfully returned to newbie list, false if failed after max attempts
+/// Check if still on chat page by looking for send button
+fn is_on_chat_page(device: &str) -> bool {
+    match ui_automator::dump_ui_hierarchy(device) {
+        Ok(xml) => xml.contains("com.pico.live:id/tvSend"),
+        Err(_) => false,
+    }
+}
+
+/// Smart back navigation - keeps pressing back until send button is gone
+/// Returns true if successfully left chat page, false if failed after max attempts
 fn smart_back_to_newbie_list(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
     const MAX_ATTEMPTS: i32 = 5;
     
@@ -81,18 +85,13 @@ fn smart_back_to_newbie_list(device: &str, screen_size: (i32, i32), logger: &BgL
         click_back_button(device, screen_size);
         thread::sleep(Duration::from_millis(1500));
         
-        // Check if we're on newbie list
-        let (is_on_list, ocr_text) = ocr::is_on_newbie_list_debug(device);
-        
-        if is_on_list {
-            logger.log(&format!("✓ 成功返回新人榜 (第{}次尝试)", attempt));
+        // Check if send button is still visible (means still on chat page)
+        if !is_on_chat_page(device) {
+            logger.log(&format!("✓ 成功返回 (第{}次尝试)", attempt));
             return true;
         }
         
-        logger.log(&format!("未检测到新人榜，继续返回... OCR: {}", 
-            ocr_text.chars().take(50).collect::<String>()));
-        
-        // Small delay before next attempt
+        logger.log("仍在聊天页面，继续返回...");
         thread::sleep(Duration::from_millis(500));
     }
     
@@ -159,7 +158,8 @@ fn scale_coords(base_x: i32, base_y: i32, screen_size: (i32, i32)) -> (i32, i32)
     ((base_x as f64 * scale_x) as i32, (base_y as f64 * scale_y) as i32)
 }
 
-/// Try to find send button using OCR (with caching)
+/// Try to find send button using UIAutomator (with caching)
+/// On first call per cycle, uses UIAutomator to find the button and caches coordinates
 fn click_send_button_smart(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
     // Check cache first
     if let Ok(guard) = CACHED_SEND_BUTTON.lock() {
@@ -169,21 +169,28 @@ fn click_send_button_smart(device: &str, screen_size: (i32, i32), logger: &BgLog
         }
     }
     
-    logger.log("首次用OCR查找发送按钮...");
+    logger.log("首次用UIAutomator查找发送按钮...");
     
-    // Use OCR to find "发送" text
-    if let Some((x, y)) = crate::ocr::find_text_position(device, "发送") {
-        // Cache the coordinates
-        if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
-            *guard = Some((x, y));
-            logger.log(&format!("发送按钮坐标: ({}, {})", x, y));
+    // Use UIAutomator to find send button by resource-id
+    match ui_automator::find_send_button(device) {
+        Ok(Some((x, y))) => {
+            // Cache the coordinates
+            if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
+                *guard = Some((x, y));
+                logger.log(&format!("发送按钮坐标: ({}, {})", x, y));
+            }
+            let _ = adb::tap(device, x, y);
+            return true;
         }
-        let _ = adb::tap(device, x, y);
-        return true;
+        Ok(None) => {
+            logger.log("UIAutomator未找到发送按钮，使用默认坐标");
+        }
+        Err(e) => {
+            logger.log(&format!("UIAutomator错误: {}, 使用默认坐标", e));
+        }
     }
     
     // Fallback to default coordinate
-    logger.log("OCR未找到发送按钮，使用默认坐标");
     let (send_x, send_y) = scale_coords(2000, 3544, screen_size);
     
     if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
@@ -195,7 +202,6 @@ fn click_send_button_smart(device: &str, screen_size: (i32, i32), logger: &BgLog
 }
 
 /// Click input box - use default coordinates (input box is usually at bottom center)
-/// We don't use OCR for input box since it might not have visible text
 fn click_input_box(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> bool {
     // Check cache first
     if let Ok(guard) = CACHED_INPUT_BOX.lock() {
@@ -218,8 +224,7 @@ fn click_input_box(device: &str, screen_size: (i32, i32), logger: &BgLogger) -> 
     true
 }
 
-/// Clear cached coordinates (call when switching devices or apps)
-#[allow(dead_code)]
+/// Clear cached coordinates (call when starting a new cycle)
 pub fn clear_ui_cache() {
     if let Ok(mut guard) = CACHED_SEND_BUTTON.lock() {
         *guard = None;
@@ -275,7 +280,7 @@ fn run_send_loop(
     total: Arc<Mutex<usize>>,
     logs: Arc<Mutex<Vec<String>>>,
     current_page: Arc<Mutex<String>>,
-    ocr_in_progress: Arc<Mutex<bool>>,
+    ui_detection_in_progress: Arc<Mutex<bool>>,
     is_test: bool,
     screen_size: (i32, i32),
     session_id: Arc<Mutex<u64>>,
@@ -296,62 +301,39 @@ fn run_send_loop(
         *current_page.lock().unwrap() = page_str.to_string();
     };
     
-    // Helper to set OCR progress
-    let set_ocr_progress = |in_progress: bool| {
-        *ocr_in_progress.lock().unwrap() = in_progress;
+    // Helper to set UI detection progress
+    let set_ui_detection_progress = |in_progress: bool| {
+        *ui_detection_in_progress.lock().unwrap() = in_progress;
     };
     
-    // OCR 检查函数 - 统一逻辑
-    // 返回 true 表示在新人榜，false 表示无法恢复
-    let check_newbie_list = |logger: &BgLogger, is_initial: bool| -> bool {
-        // 先等待确保页面稳定
-        thread::sleep(Duration::from_millis(500));
+    // 检查是否卡在聊天页面（通过检测发送按钮）
+    // 如果在聊天页面，尝试返回
+    // 返回 true 表示不在聊天页面（可以继续），false 表示无法恢复
+    let ensure_not_on_chat = |logger: &BgLogger| -> bool {
+        set_ui_detection_progress(true);
+        let on_chat = is_on_chat_page(&device);
+        set_ui_detection_progress(false);
         
-        set_ocr_progress(true);
-        let (ocr_ok, ocr_text) = ocr::is_on_newbie_list_debug(&device);
-        set_ocr_progress(false);
-        
-        if ocr_ok {
-            return true;
+        if !on_chat {
+            return true; // 不在聊天页面，OK
         }
         
-        // 第一次失败，记录 OCR 结果并等待重试
-        if is_initial {
-            logger.log("OCR: 未检测到新人榜，等待重试...");
-        } else {
-            logger.log("OCR: 不在新人榜，等待重试...");
-        }
-        // 记录 OCR 识别的文字（截取前100字符）
-        let preview: String = ocr_text.chars().take(100).collect();
-        logger.log(&format!("OCR文字: {}", preview.replace('\n', " ")));
+        logger.log("检测到仍在聊天页面，尝试返回...");
         
-        thread::sleep(Duration::from_millis(1500));
-        
-        set_ocr_progress(true);
-        let (retry1, _) = ocr::is_on_newbie_list_debug(&device);
-        set_ocr_progress(false);
-        
-        if retry1 {
-            logger.log("OCR: 重试成功");
-            return true;
-        }
-        
-        // 仍然失败，尝试点返回恢复（最多2次）
-        logger.log("OCR: 尝试返回...");
-        
-        for attempt in 1..=2 {
+        // 尝试返回最多3次
+        for attempt in 1..=3 {
             click_back_button(&device, screen_size);
-            thread::sleep(Duration::from_millis(2000));
+            thread::sleep(Duration::from_millis(1500));
             
-            set_ocr_progress(true);
-            let (retry_ok, _) = ocr::is_on_newbie_list_debug(&device);
-            set_ocr_progress(false);
+            set_ui_detection_progress(true);
+            let still_on_chat = is_on_chat_page(&device);
+            set_ui_detection_progress(false);
             
-            if retry_ok {
-                logger.log(&format!("OCR: 第{}次返回后恢复成功", attempt));
+            if !still_on_chat {
+                logger.log(&format!("✓ 第{}次返回成功", attempt));
                 return true;
             }
-            logger.log(&format!("OCR: 第{}次返回后仍未检测到", attempt));
+            logger.log(&format!("第{}次返回后仍在聊天页面", attempt));
         }
         
         false
@@ -375,16 +357,9 @@ fn run_send_loop(
         *processed.lock().unwrap() = 1;
         logger.log("测试完成");
     } else {
-        const OCR_CHECK_INTERVAL: usize = 10;
+        const CHECK_INTERVAL: usize = 10;
         
         logger.log(&format!("开始发送 {} 人", count));
-        
-        // 初始 OCR 检查
-        if !check_newbie_list(&logger, true) {
-            logger.log("未在新人榜，请手动切换");
-            *running.lock().unwrap() = false;
-            return;
-        }
         update_page(PageType::NewbieList);
         
         for i in 0..count {
@@ -395,14 +370,13 @@ fn run_send_loop(
             
             logger.log(&format!("用户 {}/{}", i + 1, count));
             
-            // 定期 OCR 校验
-            if i > 0 && i % OCR_CHECK_INTERVAL == 0 {
-                if !check_newbie_list(&logger, false) {
-                    logger.log("OCR: 无法恢复，暂停");
+            // 每10个人检查一次是否卡在聊天页面
+            if i > 0 && i % CHECK_INTERVAL == 0 {
+                if !ensure_not_on_chat(&logger) {
+                    logger.log("⚠ 无法离开聊天页面，暂停");
                     *running.lock().unwrap() = false;
                     return;
                 }
-                update_page(PageType::NewbieList);
             }
             
             // 点击撩
@@ -419,10 +393,10 @@ fn run_send_loop(
                 }
             }
             
-            // 智能返回 - 会自动重试直到返回到新人榜
+            // 智能返回 - 检测发送按钮是否消失
             thread::sleep(Duration::from_millis(500));
             if !smart_back_to_newbie_list(&device, screen_size, &logger) {
-                logger.log("⚠ 无法返回新人榜，暂停");
+                logger.log("⚠ 无法返回，暂停");
                 *running.lock().unwrap() = false;
                 return;
             }
@@ -496,6 +470,10 @@ pub fn cmd_start(
         return Err("请添加发送内容".to_string());
     }
     
+    // Clear UI cache at start of each new cycle
+    // This ensures we re-detect button positions for each batch
+    clear_ui_cache();
+    
     // Get cached screen size, fallback to fetching if not available
     let screen_size = state.screen_size.lock().unwrap()
         .unwrap_or_else(|| adb::get_screen_size(&device));
@@ -512,10 +490,10 @@ pub fn cmd_start(
     let logs = Arc::clone(&state.logs);
     let session_id = Arc::clone(&state.session_id);
     let current_page = Arc::clone(&state.current_page);
-    let ocr_in_progress = Arc::clone(&state.ocr_in_progress);
+    let ui_detection_in_progress = Arc::clone(&state.ui_detection_in_progress);
     
     thread::spawn(move || {
-        run_send_loop(device, items, max_users, delay, running, processed, total, logs, current_page, ocr_in_progress, false, screen_size, session_id, my_session);
+        run_send_loop(device, items, max_users, delay, running, processed, total, logs, current_page, ui_detection_in_progress, false, screen_size, session_id, my_session);
     });
     
     Ok(format!("开始发送，目标 {} 人", max_users))
@@ -538,6 +516,6 @@ pub fn cmd_status(state: State<'_, AppState>) -> AutoMessageStatus {
         processed: *state.auto_message_processed.lock().unwrap(),
         total: *state.auto_message_total.lock().unwrap(),
         current_page: state.current_page.lock().unwrap().clone(),
-        ocr_in_progress: *state.ocr_in_progress.lock().unwrap(),
+        ui_detection_in_progress: *state.ui_detection_in_progress.lock().unwrap(),
     }
 }

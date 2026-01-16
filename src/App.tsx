@@ -282,7 +282,7 @@ function MainApp() {
             hasContent={hasContent}
             processed={processed}
             total={total}
-            ocrInProgress={autoStatus?.data?.ocr_in_progress}
+            uiDetectionInProgress={autoStatus?.data?.ui_detection_in_progress}
             onMaxUsersChange={setMaxUsers}
             onDelayChange={setDelay}
             onTest={() => testInChat.mutate()}

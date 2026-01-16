@@ -26,7 +26,7 @@ interface ControlPanelProps {
   hasContent: boolean;
   processed: number;
   total: number;
-  ocrInProgress?: boolean;
+  uiDetectionInProgress?: boolean;
   onMaxUsersChange: (value: number) => void;
   onDelayChange: (value: number) => void;
   onTest: () => void;
@@ -44,7 +44,7 @@ export function ControlPanel({
   hasContent,
   processed,
   total,
-  ocrInProgress,
+  uiDetectionInProgress,
   onMaxUsersChange,
   onDelayChange,
   onTest,
@@ -119,9 +119,9 @@ export function ControlPanel({
           >
             <Flex align="center" gap={6}>
               <Text>发送中</Text>
-              {ocrInProgress && (
+              {uiDetectionInProgress && (
                 <Tag color="orange" className="tag-no-margin">
-                  OCR
+                  检测中
                 </Tag>
               )}
             </Flex>
@@ -132,7 +132,7 @@ export function ControlPanel({
           <Progress
             percent={total > 0 ? Math.round((processed / total) * 100) : 0}
             status="active"
-            strokeColor={ocrInProgress ? "#faad14" : "#1677ff"}
+            strokeColor={uiDetectionInProgress ? "#faad14" : "#1677ff"}
             size="small"
           />
         </Card>

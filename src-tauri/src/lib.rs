@@ -2,7 +2,7 @@ mod state;
 mod adb;
 mod auto_message;
 mod keep_awake;
-mod ocr;
+mod ui_automator;
 
 pub use state::AppState;
 
@@ -44,9 +44,8 @@ pub fn run() {
             keep_awake::cmd_keep_awake_start,
             keep_awake::cmd_keep_awake_stop,
             keep_awake::cmd_keep_awake_status,
-            // OCR test
-            ocr::cmd_test_ocr,
-            ocr::cmd_test_ocr_standalone,
+            // UI Automator
+            ui_automator::cmd_test_ui_automator,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
