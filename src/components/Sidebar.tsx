@@ -18,6 +18,7 @@ import {
   DeleteOutlined,
   HomeOutlined,
   LockOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
 import "./Sidebar.css";
 import "../styles/shared.css";
@@ -43,16 +44,20 @@ interface SidebarProps {
   onRoomSelect: (roomId: string) => void;
   onUserChat: (userId: string) => void;
   onUserProfile: (userId: string) => void;
-  onAddUser: () => void;
-  canUseFavorites?: boolean; // 是否可以使用收藏功能
+  canUseFavorites?: boolean;
+  collapsed?: boolean;
+  width?: number;
+  onWidthChange?: (width: number) => void;
 }
 
 export function Sidebar({
   onRoomSelect,
   onUserChat,
   onUserProfile,
-  onAddUser,
   canUseFavorites = false,
+  collapsed = false,
+  width = 220,
+  onWidthChange,
 }: SidebarProps) {
   const [messageApi, contextHolder] = message.useMessage();
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -61,6 +66,13 @@ export function Sidebar({
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
   const [favoriteRooms, setFavoriteRooms] = useState<FavoriteRoom[]>([]);
   const [favoriteUsers, setFavoriteUsers] = useState<FavoriteUser[]>([]);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUserId, setNewUserId] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [showAddRoom, setShowAddRoom] = useState(false);
+  const [newRoomId, setNewRoomId] = useState("");
+  const [newRoomName, setNewRoomName] = useState("");
+  const [isResizing, setIsResizing] = useState(false);
 
   // Load from localStorage
   useEffect(() => {
@@ -104,6 +116,44 @@ export function Sidebar({
     saveFavoriteUsers(favoriteUsers.filter((u) => u.id !== id));
   };
 
+  const handleAddRoom = () => {
+    if (!newRoomId.trim()) {
+      messageApi.warning("请输入房间 ID");
+      return;
+    }
+    if (favoriteRooms.some((r) => r.id === newRoomId)) {
+      messageApi.warning("该房间已存在");
+      return;
+    }
+    saveFavoriteRooms([
+      ...favoriteRooms,
+      { id: newRoomId.trim(), name: newRoomName.trim() || newRoomId.trim() },
+    ]);
+    setNewRoomId("");
+    setNewRoomName("");
+    setShowAddRoom(false);
+    messageApi.success("已添加");
+  };
+
+  const handleAddUser = () => {
+    if (!newUserId.trim()) {
+      messageApi.warning("请输入用户 ID");
+      return;
+    }
+    if (favoriteUsers.some((u) => u.id === newUserId)) {
+      messageApi.warning("该用户已存在");
+      return;
+    }
+    saveFavoriteUsers([
+      ...favoriteUsers,
+      { id: newUserId.trim(), name: newUserName.trim() || newUserId.trim() },
+    ]);
+    setNewUserId("");
+    setNewUserName("");
+    setShowAddUser(false);
+    messageApi.success("已添加");
+  };
+
   const handleSplitDrag = (e: React.MouseEvent) => {
     if (!sidebarRef.current) return;
     const rect = sidebarRef.current.getBoundingClientRect();
@@ -121,23 +171,25 @@ export function Sidebar({
     (r) =>
       !searchText ||
       r.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      r.id.includes(searchText)
+      r.id.includes(searchText),
   );
 
   const filteredUsers = favoriteUsers.filter(
     (u) =>
       !searchText ||
       u.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      u.id.includes(searchText)
+      u.id.includes(searchText),
   );
 
   return (
     <Sider
-      width={220}
+      width={width}
       className="sidebar"
       collapsible
+      collapsed={collapsed}
       collapsedWidth={0}
       trigger={null}
+      theme="light"
     >
       {contextHolder}
       <div
@@ -147,6 +199,30 @@ export function Sidebar({
         onMouseUp={isDraggingSplit ? handleSplitDragEnd : undefined}
         onMouseLeave={isDraggingSplit ? handleSplitDragEnd : undefined}
       >
+        {/* 右侧拖拽调整宽度 */}
+        <div
+          className="sidebar-resize-handle"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsResizing(true);
+            const startX = e.clientX;
+            const startWidth = width;
+            const onMouseMove = (e: MouseEvent) => {
+              const newWidth = Math.min(
+                Math.max(startWidth + e.clientX - startX, 150),
+                400,
+              );
+              onWidthChange?.(newWidth);
+            };
+            const onMouseUp = () => {
+              setIsResizing(false);
+              document.removeEventListener("mousemove", onMouseMove);
+              document.removeEventListener("mouseup", onMouseUp);
+            };
+            document.addEventListener("mousemove", onMouseMove);
+            document.addEventListener("mouseup", onMouseUp);
+          }}
+        />
         {/* 搜索框 */}
         <div className="sidebar-search">
           <Input
@@ -164,18 +240,33 @@ export function Sidebar({
           className="sidebar-section sidebar-section-rooms"
           style={{ height: `calc(${sidebarSplit}% - 24px)` }}
         >
-          <Flex align="center" gap={6} className="sidebar-section-header">
-            <StarFilled className="icon-warning" />
-            <Text strong className="text-md">
-              收藏房间
-            </Text>
-            <Text type="secondary" className="text-xs">
-              ({filteredRooms.length}/{favoriteRooms.length})
-            </Text>
-            {!canUseFavorites && (
-              <Tooltip title="高级会员功能">
-                <LockOutlined className="icon-muted" />
-              </Tooltip>
+          <Flex
+            align="center"
+            justify="space-between"
+            className="sidebar-section-header"
+          >
+            <Flex align="center" gap={6}>
+              <StarFilled className="icon-warning" />
+              <Text strong className="text-md">
+                收藏房间
+              </Text>
+              <Text type="secondary" className="text-xs">
+                ({filteredRooms.length}/{favoriteRooms.length})
+              </Text>
+              {!canUseFavorites && (
+                <Tooltip title="高级会员功能">
+                  <LockOutlined className="icon-muted" />
+                </Tooltip>
+              )}
+            </Flex>
+            {canUseFavorites && (
+              <Button
+                type="text"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => setShowAddRoom(true)}
+                aria-label="添加收藏房间"
+              />
             )}
           </Flex>
           <div className="sidebar-section-content">
@@ -183,8 +274,49 @@ export function Sidebar({
               <Text type="secondary" className="text-sm">
                 <LockOutlined /> 升级高级会员解锁收藏功能
               </Text>
-            ) : favoriteRooms.length > 0 ? (
+            ) : (
               <Flex vertical gap={4}>
+                {/* 添加房间输入行 */}
+                {showAddRoom && (
+                  <Card size="small" styles={{ body: { padding: "8px 12px" } }}>
+                    <Flex vertical gap={4}>
+                      <Input
+                        size="small"
+                        placeholder="房间 ID"
+                        value={newRoomId}
+                        onChange={(e) => setNewRoomId(e.target.value)}
+                        onPressEnter={handleAddRoom}
+                      />
+                      <Flex gap={4}>
+                        <Input
+                          size="small"
+                          placeholder="备注名称（可选）"
+                          value={newRoomName}
+                          onChange={(e) => setNewRoomName(e.target.value)}
+                          onPressEnter={handleAddRoom}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={handleAddRoom}
+                        >
+                          添加
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setShowAddRoom(false);
+                            setNewRoomId("");
+                            setNewRoomName("");
+                          }}
+                        >
+                          取消
+                        </Button>
+                      </Flex>
+                    </Flex>
+                  </Card>
+                )}
                 {filteredRooms.map((room) => (
                   <Card
                     key={room.id}
@@ -229,11 +361,12 @@ export function Sidebar({
                     </Flex>
                   </Card>
                 ))}
+                {!showAddRoom && favoriteRooms.length === 0 && (
+                  <Text type="secondary" className="text-sm">
+                    点击 + 添加收藏房间
+                  </Text>
+                )}
               </Flex>
-            ) : (
-              <Text type="secondary" className="text-sm">
-                暂无收藏，输入房间 ID 后点击 ⭐ 收藏
-              </Text>
             )}
           </div>
         </div>
@@ -275,7 +408,7 @@ export function Sidebar({
                 type="text"
                 size="small"
                 icon={<PlusOutlined />}
-                onClick={onAddUser}
+                onClick={() => setShowAddUser(true)}
                 aria-label="添加收藏用户"
               />
             )}
@@ -285,8 +418,49 @@ export function Sidebar({
               <Text type="secondary" className="text-sm">
                 <LockOutlined /> 升级高级会员解锁收藏功能
               </Text>
-            ) : favoriteUsers.length > 0 ? (
+            ) : (
               <Flex vertical gap={4}>
+                {/* 添加用户输入行 */}
+                {showAddUser ? (
+                  <Card size="small" styles={{ body: { padding: "8px 12px" } }}>
+                    <Flex vertical gap={4}>
+                      <Input
+                        size="small"
+                        placeholder="用户 ID"
+                        value={newUserId}
+                        onChange={(e) => setNewUserId(e.target.value)}
+                        onPressEnter={handleAddUser}
+                      />
+                      <Flex gap={4}>
+                        <Input
+                          size="small"
+                          placeholder="备注名称（可选）"
+                          value={newUserName}
+                          onChange={(e) => setNewUserName(e.target.value)}
+                          onPressEnter={handleAddUser}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={handleAddUser}
+                        >
+                          添加
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setShowAddUser(false);
+                            setNewUserId("");
+                            setNewUserName("");
+                          }}
+                        >
+                          取消
+                        </Button>
+                      </Flex>
+                    </Flex>
+                  </Card>
+                ) : null}
                 {filteredUsers.map((user) => (
                   <Card
                     key={user.id}
@@ -317,7 +491,7 @@ export function Sidebar({
                         <Button
                           type="text"
                           size="small"
-                          icon={<UserOutlined />}
+                          icon={<MessageOutlined />}
                           onClick={() => onUserChat(user.id)}
                           title="聊天"
                           aria-label="打开聊天"
@@ -343,11 +517,12 @@ export function Sidebar({
                     </Flex>
                   </Card>
                 ))}
+                {!showAddUser && favoriteUsers.length === 0 && (
+                  <Text type="secondary" className="text-sm">
+                    点击 + 添加收藏用户
+                  </Text>
+                )}
               </Flex>
-            ) : (
-              <Text type="secondary" className="text-sm">
-                点击 + 添加收藏用户
-              </Text>
             )}
           </div>
         </div>

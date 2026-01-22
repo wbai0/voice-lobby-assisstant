@@ -17,21 +17,16 @@ const supabaseAnonKey =
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Subscription types
-export type SubscriptionType = "basic" | "premium" | null;
+export type SubscriptionType = "free" | "trial" | "basic" | "premium";
 
 // User subscription status type
 export interface UserProfile {
   id: string;
   email: string;
-  is_subscribed: boolean; // 保留兼容，但不再使用
   is_admin: boolean;
-  daily_usage: number;
-  last_usage_date: string;
-  // 新增订阅字段
   diamonds: number;
   subscription_type: SubscriptionType;
   subscription_expires_at: string | null;
-  trial_expires_at: string | null;
 }
 
 // Subscription plan

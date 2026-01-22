@@ -34,3 +34,29 @@
   opacity: 0.6;
   background: #f5f5f5;
 }
+
+.subscription-sider {
+  border-right: 1px solid #e8e8e8;
+  position: relative;
+}
+
+.subscription-content {
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.subscription-sider .resize-handle-right {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.subscription-sider .resize-handle-right:hover {
+  background: #1677ff;
+}

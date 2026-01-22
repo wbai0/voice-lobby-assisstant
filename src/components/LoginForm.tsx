@@ -1,6 +1,15 @@
 import { useState } from "react";
-import { Layout, Card, Flex, Form, Input, Button, message } from "antd";
-import { UserOutlined, LockOutlined } from "@ant-design/icons";
+import {
+  Layout,
+  Card,
+  Flex,
+  Form,
+  Input,
+  Button,
+  message,
+  Typography,
+} from "antd";
+import { UserOutlined, MailOutlined } from "@ant-design/icons";
 import { useAuth } from "../useAuth";
 import "./LoginForm.css";
 import "../styles/shared.css";
@@ -8,34 +17,52 @@ import "../styles/shared.css";
 const { Content } = Layout;
 const { Text } = Typography;
 
-import { Typography } from "antd";
-
 interface LoginFormProps {
   onSuccess: () => void;
 }
 
+type FormMode = "email" | "otp";
+
 export function LoginForm({ onSuccess }: LoginFormProps) {
-  const { signIn, signUp } = useAuth();
+  const { sendOtp, verifyOtp } = useAuth();
   const [messageApi, contextHolder] = message.useMessage();
   const [loading, setLoading] = useState(false);
-  const [isRegister, setIsRegister] = useState(false);
+  const [mode, setMode] = useState<FormMode>("email");
+  const [email, setEmail] = useState("");
   const [form] = Form.useForm();
 
-  const handleSubmit = async (values: { email: string; password: string }) => {
+  const handleSubmit = async (values: { email?: string; otp?: string }) => {
     setLoading(true);
-    const { error } = isRegister
-      ? await signUp(values.email, values.password)
-      : await signIn(values.email, values.password);
-    setLoading(false);
 
-    if (error) {
-      messageApi.error(error.message);
-    } else if (isRegister) {
-      messageApi.success("注册成功，请查收验证邮件");
-    } else {
-      messageApi.success("登录成功");
-      onSuccess();
+    try {
+      if (mode === "email") {
+        const { error } = await sendOtp(values.email!);
+        if (error) {
+          messageApi.error(error.message);
+        } else {
+          messageApi.success("验证码已发送到邮箱");
+          setEmail(values.email!);
+          setMode("otp");
+          form.resetFields();
+        }
+      } else {
+        const { error } = await verifyOtp(email, values.otp!);
+        if (error) {
+          messageApi.error(error.message);
+        } else {
+          messageApi.success("登录成功");
+          onSuccess();
+        }
+      }
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const resetToEmail = () => {
+    setMode("email");
+    setEmail("");
+    form.resetFields();
   };
 
   return (
@@ -53,7 +80,10 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         <Card style={{ width: "100%" }}>
           <Flex vertical gap={16} align="center">
             <Text strong style={{ fontSize: 20 }}>
-              Pico Assistant
+              语音厅工具箱
+            </Text>
+            <Text type="secondary" style={{ fontSize: 14 }}>
+              {mode === "email" ? "输入邮箱获取验证码" : "输入验证码登录"}
             </Text>
             <Form
               form={form}
@@ -61,28 +91,49 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
               style={{ width: "100%" }}
               layout="vertical"
             >
-              <Form.Item
-                name="email"
-                rules={[
-                  { required: true, type: "email", message: "请输入有效邮箱" },
-                ]}
-              >
-                <Input
-                  prefix={<UserOutlined />}
-                  placeholder="邮箱"
-                  size="large"
-                />
-              </Form.Item>
-              <Form.Item
-                name="password"
-                rules={[{ required: true, min: 6, message: "密码至少6位" }]}
-              >
-                <Input.Password
-                  prefix={<LockOutlined />}
-                  placeholder="密码"
-                  size="large"
-                />
-              </Form.Item>
+              {mode === "email" && (
+                <Form.Item
+                  name="email"
+                  rules={[
+                    {
+                      required: true,
+                      type: "email",
+                      message: "请输入有效邮箱",
+                    },
+                  ]}
+                >
+                  <Input
+                    prefix={<UserOutlined />}
+                    placeholder="邮箱"
+                    size="large"
+                  />
+                </Form.Item>
+              )}
+              {mode === "otp" && (
+                <>
+                  <Text
+                    type="secondary"
+                    style={{
+                      display: "block",
+                      marginBottom: 16,
+                      textAlign: "center",
+                    }}
+                  >
+                    验证码已发送至 {email}
+                  </Text>
+                  <Form.Item
+                    name="otp"
+                    rules={[{ required: true, message: "请输入验证码" }]}
+                  >
+                    <Input
+                      prefix={<MailOutlined />}
+                      placeholder="8位验证码"
+                      size="large"
+                      maxLength={8}
+                    />
+                  </Form.Item>
+                </>
+              )}
               <Form.Item style={{ marginBottom: 8 }}>
                 <Button
                   type="primary"
@@ -91,13 +142,33 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
                   block
                   size="large"
                 >
-                  {isRegister ? "注册" : "登录"}
+                  {mode === "email" ? "获取验证码" : "登录"}
                 </Button>
               </Form.Item>
             </Form>
-            <Button type="link" onClick={() => setIsRegister(!isRegister)}>
-              {isRegister ? "已有账号？去登录" : "没有账号？去注册"}
-            </Button>
+            {mode === "otp" && (
+              <Flex gap={16}>
+                <Button type="link" onClick={resetToEmail}>
+                  更换邮箱
+                </Button>
+                <Button
+                  type="link"
+                  onClick={async () => {
+                    setLoading(true);
+                    const { error } = await sendOtp(email);
+                    setLoading(false);
+                    if (error) {
+                      messageApi.error(error.message);
+                    } else {
+                      messageApi.success("验证码已重新发送");
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  重新发送
+                </Button>
+              </Flex>
+            )}
           </Flex>
         </Card>
       </Content>

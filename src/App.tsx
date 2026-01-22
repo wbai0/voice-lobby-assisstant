@@ -8,15 +8,18 @@ import {
   Layout,
   Flex,
   Typography,
-  Space,
   Button,
   message,
   notification,
+  Tooltip,
 } from "antd";
 import {
   SettingOutlined,
   LogoutOutlined,
   CloudDownloadOutlined,
+  TransactionOutlined,
+  StarOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "./useAuth";
 import { useSubscription } from "./useSubscription";
@@ -27,11 +30,11 @@ import {
   Sidebar,
   LogsSidebar,
   SettingsPanel,
-  ConnectionCard,
+  ConnectionModal,
+  StatusBar,
   useConnectionStatus,
   MessageEditor,
   ControlPanel,
-  NavigationCards,
   SubscriptionPanel,
   getItemsForSubmit,
 } from "./components";
@@ -91,15 +94,19 @@ function MainApp() {
   const [messageApi, contextHolder] = message.useMessage();
   const [notificationApi, notificationContextHolder] =
     notification.useNotification();
-  const { profile, signOut, refreshProfile } = useAuth();
+  const { profile, user, signOut, refreshProfile } = useAuth();
   const subscription = useSubscription(profile, refreshProfile);
   const updater = useUpdater();
   const connected = useConnectionStatus();
 
-  const [showSettings, setShowSettings] = useState(false);
+  const [showConnection, setShowConnection] = useState(false);
   const [items, setItems] = useState<ContentItemWithId[]>([]);
   const [maxUsers, setMaxUsers] = useState(10);
   const [delay, setDelay] = useState(5);
+  const [activePanel, setActivePanel] = useState<
+    "favorites" | "logs" | "subscription" | "settings" | null
+  >("favorites");
+  const [sidebarWidth, setSidebarWidth] = useState(250);
 
   // Update notification
   useEffect(() => {
@@ -146,14 +153,14 @@ function MainApp() {
   const processed = autoStatus?.data?.processed ?? 0;
   const total = autoStatus?.data?.total ?? 0;
   const hasContent = items.some(
-    (i) => i.type === "photo" || (i.type === "text" && i.content.trim())
+    (i) => i.type === "photo" || (i.type === "text" && i.content.trim()),
   );
 
   const handleMessage = useCallback(
     (type: "success" | "error" | "warning", msg: string) => {
       messageApi[type](msg);
     },
-    [messageApi]
+    [messageApi],
   );
 
   const startAuto = useMutation({
@@ -215,55 +222,177 @@ function MainApp() {
       {contextHolder}
       {notificationContextHolder}
 
-      <Sidebar
-        onRoomSelect={(roomId) => openRoom.mutate(roomId)}
-        onUserChat={(uid) => openChat.mutate(uid)}
-        onUserProfile={(uid) => openUser.mutate(uid)}
-        onAddUser={() => {}}
-        canUseFavorites={subscription.canUseFeature().allowed}
-      />
+      {/* Activity Bar */}
+      <div
+        style={{
+          width: 48,
+          minWidth: 48,
+          height: "100%",
+          flexShrink: 0,
+          background: "#f5f5f5",
+          borderRight: "1px solid #e8e8e8",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          paddingTop: 8,
+          paddingBottom: 8,
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <Tooltip title="收藏" placement="right">
+            <Button
+              type="text"
+              icon={<StarOutlined />}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                background: activePanel === "favorites" ? "#e6f4ff" : undefined,
+                color: activePanel === "favorites" ? "#1677ff" : undefined,
+              }}
+              onClick={() =>
+                setActivePanel(activePanel === "favorites" ? null : "favorites")
+              }
+            />
+          </Tooltip>
+          <Tooltip title="日志" placement="right">
+            <Button
+              type="text"
+              icon={<FileTextOutlined />}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                background: activePanel === "logs" ? "#e6f4ff" : undefined,
+                color: activePanel === "logs" ? "#1677ff" : undefined,
+              }}
+              onClick={() =>
+                setActivePanel(activePanel === "logs" ? null : "logs")
+              }
+            />
+          </Tooltip>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <Tooltip title="订阅管理" placement="right">
+            <Button
+              type="text"
+              icon={<TransactionOutlined />}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                background:
+                  activePanel === "subscription" ? "#e6f4ff" : undefined,
+                color: activePanel === "subscription" ? "#1677ff" : undefined,
+              }}
+              onClick={() => {
+                setActivePanel(
+                  activePanel === "subscription" ? null : "subscription",
+                );
+                refreshProfile();
+              }}
+            />
+          </Tooltip>
+          <Tooltip title="设置" placement="right">
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                background: activePanel === "settings" ? "#e6f4ff" : undefined,
+                color: activePanel === "settings" ? "#1677ff" : undefined,
+              }}
+              onClick={() =>
+                setActivePanel(activePanel === "settings" ? null : "settings")
+              }
+            />
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Left Panel - Favorites */}
+      {activePanel === "favorites" && (
+        <Sidebar
+          onRoomSelect={(roomId) => openRoom.mutate(roomId)}
+          onUserChat={(uid) => openChat.mutate(uid)}
+          onUserProfile={(uid) => openUser.mutate(uid)}
+          canUseFavorites={subscription.canUseFeature().allowed}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+        />
+      )}
+
+      {/* Left Panel - Logs */}
+      {activePanel === "logs" && (
+        <LogsSidebar
+          connected={connected}
+          isRunning={isRunning}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+        />
+      )}
+
+      {/* Left Panel - Subscription */}
+      {activePanel === "subscription" && (
+        <SubscriptionPanel
+          profile={profile}
+          email={user?.email}
+          status={subscription.status}
+          plans={subscription.plans}
+          formatRemaining={subscription.formatRemaining}
+          onPurchase={subscription.purchaseSubscription}
+          onMessage={handleMessage}
+          onRefreshProfile={refreshProfile}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+        />
+      )}
+
+      {/* Left Panel - Settings */}
+      {activePanel === "settings" && (
+        <SettingsPanel
+          onMessage={handleMessage}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+        />
+      )}
 
       <Content className="app-content">
         <Flex vertical gap={12} className="main-container">
           {/* Header */}
           <Flex justify="space-between" align="center">
             <Text strong className="text-lg">
-              Pico
+              语音主播工具箱
             </Text>
-            <Space size={4}>
-              <Button
-                size="small"
-                type="text"
-                icon={<SettingOutlined />}
-                onClick={() => setShowSettings(!showSettings)}
-                aria-label="设置"
-              />
+            <Tooltip title="退出登录">
               <Button
                 size="small"
                 type="text"
                 icon={<LogoutOutlined />}
                 onClick={signOut}
-                aria-label="退出登录"
               />
-            </Space>
+            </Tooltip>
           </Flex>
 
-          {/* 订阅状态 */}
+          {/* 订阅状态 - 简化版 */}
           <SubscriptionPanel
             profile={profile}
+            email={user?.email}
             status={subscription.status}
             plans={subscription.plans}
             formatRemaining={subscription.formatRemaining}
             onPurchase={subscription.purchaseSubscription}
             onMessage={handleMessage}
+            onRefreshProfile={refreshProfile}
+            compact
           />
 
-          {showSettings && <SettingsPanel onMessage={handleMessage} />}
-
-          <ConnectionCard isRunning={isRunning} onMessage={handleMessage} />
-
-          <NavigationCards
-            connected={connected}
+          <ConnectionModal
+            open={showConnection}
+            onClose={() => setShowConnection(false)}
             isRunning={isRunning}
             onMessage={handleMessage}
           />
@@ -294,7 +423,16 @@ function MainApp() {
         </Flex>
       </Content>
 
-      <LogsSidebar connected={connected} isRunning={isRunning} />
+      <StatusBar
+        connected={connected}
+        isRunning={isRunning}
+        onOpenConnection={() => setShowConnection(true)}
+        onDisconnect={() =>
+          adbApi
+            .disconnect()
+            .then(() => qc.invalidateQueries({ queryKey: ["adb"] }))
+        }
+      />
     </Layout>
   );
 }

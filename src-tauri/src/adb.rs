@@ -458,18 +458,8 @@ pub fn cmd_adb_connect(port: u16, state: State<'_, AppState>) -> Result<String, 
 
 #[tauri::command]
 pub fn cmd_adb_disconnect(state: State<'_, AppState>) -> Result<String, String> {
-    // Get port first, then release lock before doing anything else
-    let port = {
-        let guard = state.connected_port.lock().unwrap();
-        *guard
-    };
-    
-    if let Some(p) = port {
-        // Disconnect ADB (ignore errors)
-        let _ = disconnect(p);
-    }
-    
-    // Clear state (separate lock acquisitions to avoid deadlock)
+    // Just clear local state, don't actually disconnect ADB
+    // ADB can handle multiple connections, and disconnect can cause emulator freeze
     {
         let mut device = state.connected_device.lock().unwrap();
         *device = None;
@@ -483,16 +473,17 @@ pub fn cmd_adb_disconnect(state: State<'_, AppState>) -> Result<String, String> 
         *screen_size = None;
     }
     
-    state.add_log("🔌 ADB 已断开");
+    state.add_log("🔌 已切换连接状态");
     Ok("已断开".to_string())
 }
 
 #[tauri::command]
-pub fn cmd_adb_status(state: State<'_, AppState>) -> bool {
-    if let Some(port) = *state.connected_port.lock().unwrap() {
-        is_connected(port)
+pub fn cmd_adb_status(state: State<'_, AppState>) -> (bool, Option<u16>) {
+    let port = *state.connected_port.lock().unwrap();
+    if let Some(p) = port {
+        (is_connected(p), Some(p))
     } else {
-        false
+        (false, None)
     }
 }
 

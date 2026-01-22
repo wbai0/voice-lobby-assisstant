@@ -35,8 +35,9 @@ export const adbApi = {
     data: { connected: boolean; port: number | null };
   }> => {
     if (isTauri()) {
-      const connected = await invoke<boolean>("cmd_adb_status");
-      return { data: { connected, port: null } };
+      const [connected, port] =
+        await invoke<[boolean, number | null]>("cmd_adb_status");
+      return { data: { connected, port } };
     }
     return { data: { connected: false, port: null } };
   },
@@ -50,7 +51,7 @@ export const adbApi = {
   },
 
   connect: async (
-    port: number
+    port: number,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     if (isTauri()) {
       const message = await invoke<string>("cmd_adb_connect", { port });
@@ -78,7 +79,7 @@ export const adbApi = {
   },
 
   setPath: async (
-    path: string
+    path: string,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     if (isTauri()) {
       const message = await invoke<string>("cmd_adb_set_path", { path });
@@ -96,7 +97,7 @@ export const adbApi = {
   },
 
   openRoom: async (
-    roomId: string
+    roomId: string,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     if (isTauri()) {
       const message = await invoke<string>("cmd_open_room", { roomId });
@@ -106,7 +107,7 @@ export const adbApi = {
   },
 
   openChat: async (
-    uid: string
+    uid: string,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     if (isTauri()) {
       const message = await invoke<string>("cmd_open_chat", { uid });
@@ -116,7 +117,7 @@ export const adbApi = {
   },
 
   openUser: async (
-    uid: string
+    uid: string,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     if (isTauri()) {
       const message = await invoke<string>("cmd_open_user", { uid });
@@ -136,7 +137,7 @@ export const adbApi = {
   },
 
   openRoute: async (
-    route: string
+    route: string,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     if (isTauri()) {
       const message = await invoke<string>("cmd_open_route", { route });
@@ -167,7 +168,7 @@ export const adbApi = {
 
   tapAt: async (
     x: number,
-    y: number
+    y: number,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     if (isTauri()) {
       const message = await invoke<string>("cmd_tap_at", { x, y });
@@ -222,7 +223,7 @@ export const autoMessageApi = {
   start: async (
     items: ContentItem[],
     maxUsers: number,
-    delay: number
+    delay: number,
   ): Promise<{ data: { success: boolean; message: string } }> => {
     devLog("autoMessageApi.start called, isTauri:", isTauri());
     if (isTauri()) {
@@ -275,13 +276,13 @@ export const autoMessageApi = {
   },
 
   testInChat: async (
-    items: ContentItem[]
+    items: ContentItem[],
   ): Promise<{ data: { success: boolean; message: string } }> => {
     devLog(
       "autoMessageApi.testInChat called, isTauri:",
       isTauri(),
       "items:",
-      items
+      items,
     );
     if (isTauri()) {
       try {

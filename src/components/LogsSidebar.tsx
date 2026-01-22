@@ -22,9 +22,18 @@ const { Text } = Typography;
 interface LogsSidebarProps {
   connected: boolean;
   isRunning: boolean;
+  collapsed?: boolean;
+  width?: number;
+  onWidthChange?: (width: number) => void;
 }
 
-export function LogsSidebar({ connected, isRunning }: LogsSidebarProps) {
+export function LogsSidebar({
+  connected,
+  isRunning,
+  collapsed = false,
+  width = 280,
+  onWidthChange,
+}: LogsSidebarProps) {
   const qc = useQueryClient();
   const [messageApi, contextHolder] = message.useMessage();
   const logRef = useRef<HTMLDivElement>(null);
@@ -140,8 +149,37 @@ export function LogsSidebar({ connected, isRunning }: LogsSidebarProps) {
   ];
 
   return (
-    <Sider width={280} className="logs-sidebar">
+    <Sider
+      width={width}
+      className="logs-sidebar"
+      collapsed={collapsed}
+      collapsedWidth={0}
+      trigger={null}
+      theme="light"
+    >
       {contextHolder}
+      {/* 右侧拖拽调整宽度 */}
+      <div
+        className="logs-sidebar-resize-handle"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const startX = e.clientX;
+          const startWidth = width;
+          const onMouseMove = (e: MouseEvent) => {
+            const newWidth = Math.min(
+              Math.max(startWidth + (e.clientX - startX), 200),
+              500,
+            );
+            onWidthChange?.(newWidth);
+          };
+          const onMouseUp = () => {
+            document.removeEventListener("mousemove", onMouseMove);
+            document.removeEventListener("mouseup", onMouseUp);
+          };
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onMouseUp);
+        }}
+      />
 
       {/* 快捷导航 */}
       {connected && (

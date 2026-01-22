@@ -29,22 +29,16 @@ export function useAuth() {
 
       if (error) {
         if (error.code === "PGRST116") {
-          // Profile doesn't exist, create one
-          // 注意：新用户会通过数据库触发器自动创建，这里是备用逻辑
-          const today = new Date().toISOString().split("T")[0];
+          // Profile doesn't exist, create one with trial
           const trialExpires = new Date(
-            Date.now() + 24 * 60 * 60 * 1000
+            Date.now() + 24 * 60 * 60 * 1000,
           ).toISOString();
           const newProfile: Partial<UserProfile> = {
             id: userId,
-            is_subscribed: false,
             is_admin: false,
-            daily_usage: 0,
-            last_usage_date: today,
             diamonds: 0,
-            subscription_type: null,
-            subscription_expires_at: null,
-            trial_expires_at: trialExpires,
+            subscription_type: "trial",
+            subscription_expires_at: trialExpires,
           };
           await supabase.from("profiles").insert(newProfile);
           setProfile({ ...newProfile, email: "" } as UserProfile);
@@ -116,20 +110,23 @@ export function useAuth() {
     };
   }, [fetchProfile]);
 
-  // Sign in
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+  // Send OTP to email (works for both new and existing users)
+  const sendOtp = async (email: string) => {
+    const { error } = await supabase.auth.signInWithOtp({
       email,
-      password,
+      options: {
+        shouldCreateUser: true, // Auto-create user if doesn't exist
+      },
     });
     return { error };
   };
 
-  // Sign up
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
+  // Verify OTP and sign in
+  const verifyOtp = async (email: string, token: string) => {
+    const { error } = await supabase.auth.verifyOtp({
       email,
-      password,
+      token,
+      type: "magiclink", // Must match the type sent by signInWithOtp
     });
     return { error };
   };
@@ -147,8 +144,8 @@ export function useAuth() {
     user,
     profile,
     loading,
-    signIn,
-    signUp,
+    sendOtp,
+    verifyOtp,
     signOut,
     refreshProfile,
   };

@@ -21,7 +21,7 @@ export interface SubscriptionStatus {
  * 计算用户的订阅状态
  */
 export function calculateSubscriptionStatus(
-  profile: UserProfile | null
+  profile: UserProfile | null,
 ): SubscriptionStatus {
   if (!profile) {
     return {
@@ -47,38 +47,27 @@ export function calculateSubscriptionStatus(
   }
 
   const now = Date.now();
+  const type = profile.subscription_type;
+  const expiresAt = profile.subscription_expires_at
+    ? new Date(profile.subscription_expires_at).getTime()
+    : null;
 
-  // 检查试用期
-  if (profile.trial_expires_at) {
-    const trialExpires = new Date(profile.trial_expires_at).getTime();
-    if (trialExpires > now) {
-      return {
-        isActive: true,
-        inTrial: true,
-        trialRemaining: trialExpires - now,
-        subscriptionRemaining: null,
-        expiresAt: new Date(trialExpires),
-        expired: false,
-      };
-    }
+  // 检查是否有效
+  if (type && type !== "free" && expiresAt && expiresAt > now) {
+    const remaining = expiresAt - now;
+    const inTrial = type === "trial";
+
+    return {
+      isActive: true,
+      inTrial,
+      trialRemaining: inTrial ? remaining : null,
+      subscriptionRemaining: inTrial ? null : remaining,
+      expiresAt: new Date(expiresAt),
+      expired: false,
+    };
   }
 
-  // 检查订阅
-  if (profile.subscription_expires_at) {
-    const subExpires = new Date(profile.subscription_expires_at).getTime();
-    if (subExpires > now) {
-      return {
-        isActive: true,
-        inTrial: false,
-        trialRemaining: null,
-        subscriptionRemaining: subExpires - now,
-        expiresAt: new Date(subExpires),
-        expired: false,
-      };
-    }
-  }
-
-  // 已过期
+  // 已过期或免费用户
   return {
     isActive: false,
     inTrial: false,
@@ -110,7 +99,7 @@ export function canUseFeature(status: SubscriptionStatus): {
  */
 export function useSubscription(
   profile: UserProfile | null,
-  refreshProfile: () => Promise<void>
+  refreshProfile: () => Promise<void>,
 ) {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(false);
@@ -166,7 +155,7 @@ export function useSubscription(
         setLoading(false);
       }
     },
-    [profile, refreshProfile]
+    [profile, refreshProfile],
   );
 
   // 定期校验订阅状态
