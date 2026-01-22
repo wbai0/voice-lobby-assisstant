@@ -31,6 +31,7 @@ pub fn run() {
             adb::cmd_tap_nova_user_list,
             adb::cmd_tap_at,
             adb::cmd_navigate_to_nova_list,
+            adb::cmd_run_diagnostics,
             // Auto message commands
             auto_message::cmd_start,
             auto_message::cmd_stop,

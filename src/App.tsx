@@ -218,7 +218,7 @@ function MainApp() {
   });
 
   return (
-    <Layout className="app-layout">
+    <Layout className="app-layout" style={{ flexDirection: "row" }}>
       {contextHolder}
       {notificationContextHolder}
 
@@ -227,7 +227,6 @@ function MainApp() {
         style={{
           width: 48,
           minWidth: 48,
-          height: "100%",
           flexShrink: 0,
           background: "#f5f5f5",
           borderRight: "1px solid #e8e8e8",
@@ -360,7 +359,7 @@ function MainApp() {
         />
       )}
 
-      <Content className="app-content">
+      <Content className="app-content" style={{ alignContent: "flex-start" }}>
         <Flex vertical gap={12} className="main-container">
           {/* Header */}
           <Flex justify="space-between" align="center">

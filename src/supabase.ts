@@ -14,7 +14,13 @@ const supabaseAnonKey =
 // Note: This is a publishable key for client-side access
 // Security is enforced via Row Level Security (RLS) policies in Supabase
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    storageKey: "pico-live-assistant-auth",
+    storage: window.localStorage,
+  },
+});
 
 // Subscription types
 export type SubscriptionType = "free" | "trial" | "basic" | "premium";

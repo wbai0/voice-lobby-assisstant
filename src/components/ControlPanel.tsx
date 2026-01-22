@@ -90,7 +90,7 @@ export function ControlPanel({
               <InputNumber
                 size="small"
                 min={1}
-                max={30}
+                max={300}
                 value={delay}
                 onChange={(v) => onDelayChange(v || 5)}
                 disabled={isRunning}
@@ -99,7 +99,7 @@ export function ControlPanel({
             </Flex>
             <Slider
               min={1}
-              max={30}
+              max={300}
               value={delay}
               onChange={onDelayChange}
               disabled={isRunning}

@@ -89,12 +89,45 @@ fn get_attr(node: &str, attr: &str) -> String {
     String::new()
 }
 
+/// Check if device is in portrait orientation (SurfaceOrientation: 0)
+/// On Windows, dumpsys input returns two SurfaceOrientation values - we need the first one (system)
+fn check_orientation(device: &str) -> Result<(), String> {
+    let adb_path = adb::get_adb_path_public();
+    let output = create_command(&adb_path)
+        .args(["-s", device, "shell", "dumpsys", "input"])
+        .output()
+        .map_err(|e| format!("Failed to run dumpsys: {}", e))?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    // Find first SurfaceOrientation value (system orientation)
+    for line in stdout.lines() {
+        if line.contains("SurfaceOrientation:") {
+            let orientation = line
+                .split(':')
+                .nth(1)
+                .and_then(|s| s.trim().parse::<i32>().ok())
+                .unwrap_or(0);
+            
+            if orientation != 0 {
+                return Err("屏幕方向不正确，请将模拟器旋转为竖屏模式".to_string());
+            }
+            return Ok(()); // Only check first occurrence
+        }
+    }
+    
+    Ok(()) // If not found, assume portrait
+}
+
 /// Dump UI hierarchy and return raw XML
 /// 
 /// IMPORTANT: uiautomator dump fails when animations are running.
 /// We disable animations first with: `adb shell settings put global animator_duration_scale 0`
 /// and restore it to 1 after the dump completes.
 pub fn dump_ui_hierarchy(device: &str) -> Result<String, String> {
+    // Check orientation first
+    check_orientation(device)?;
+    
     let start = Instant::now();
     let adb_path = adb::get_adb_path_public();
     

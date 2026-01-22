@@ -1,8 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { Layout, Flex, Tag, Typography, Space, Input, Button } from "antd";
-import { CloudDownloadOutlined } from "@ant-design/icons";
+import {
+  CloudDownloadOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+} from "@ant-design/icons";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { adbApi, uiAutomatorApi } from "../api";
+import type { DiagnosticResult } from "../api";
 import { useUpdater } from "../useUpdater";
 import "./SettingsPanel.css";
 import "../styles/shared.css";
@@ -44,6 +49,8 @@ export function SettingsPanel({
   const [uiAutomatorResult, setUiAutomatorResult] = useState<string | null>(
     null,
   );
+  const [diagnosticResult, setDiagnosticResult] =
+    useState<DiagnosticResult | null>(null);
 
   const testUiAutomator = useMutation({
     mutationFn: uiAutomatorApi.test,
@@ -54,6 +61,22 @@ export function SettingsPanel({
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       onMessage("error", `UI检测失败: ${message}`);
+    },
+  });
+
+  const runDiagnostics = useMutation({
+    mutationFn: uiAutomatorApi.runDiagnostics,
+    onSuccess: (result) => {
+      setDiagnosticResult(result.data);
+      if (result.data.issues.length === 0) {
+        onMessage("success", "诊断完成，一切正常");
+      } else {
+        onMessage("warning", `发现 ${result.data.issues.length} 个问题`);
+      }
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      onMessage("error", `诊断失败: ${message}`);
     },
   });
 
@@ -129,14 +152,82 @@ export function SettingsPanel({
             className="settings-divider"
           >
             <Text type="secondary">UI检测</Text>
-            <Button
-              size="small"
-              onClick={() => testUiAutomator.mutate()}
-              loading={testUiAutomator.isPending}
-            >
-              测试检测
-            </Button>
+            <Space>
+              <Button
+                size="small"
+                onClick={() => runDiagnostics.mutate()}
+                loading={runDiagnostics.isPending}
+              >
+                诊断
+              </Button>
+              <Button
+                size="small"
+                onClick={() => testUiAutomator.mutate()}
+                loading={testUiAutomator.isPending}
+              >
+                测试
+              </Button>
+            </Space>
           </Flex>
+          {diagnosticResult && (
+            <div
+              style={{
+                background: "#f5f5f5",
+                padding: 8,
+                borderRadius: 4,
+                fontSize: 12,
+              }}
+            >
+              <Flex vertical gap={4}>
+                <Flex justify="space-between">
+                  <span>ADB连接</span>
+                  {diagnosticResult.adb_connected ? (
+                    <CheckCircleOutlined style={{ color: "#52c41a" }} />
+                  ) : (
+                    <CloseCircleOutlined style={{ color: "#ff4d4f" }} />
+                  )}
+                </Flex>
+                {diagnosticResult.adb_connected && (
+                  <>
+                    <Flex justify="space-between">
+                      <span>屏幕方向</span>
+                      {diagnosticResult.orientation_ok ? (
+                        <CheckCircleOutlined style={{ color: "#52c41a" }} />
+                      ) : (
+                        <Tag color="error">横屏</Tag>
+                      )}
+                    </Flex>
+                    <Flex justify="space-between">
+                      <span>UI Dump</span>
+                      {diagnosticResult.ui_dump_ok ? (
+                        <CheckCircleOutlined style={{ color: "#52c41a" }} />
+                      ) : (
+                        <CloseCircleOutlined style={{ color: "#ff4d4f" }} />
+                      )}
+                    </Flex>
+                    {diagnosticResult.screen_size && (
+                      <Text type="secondary" className="text-xs">
+                        屏幕: {diagnosticResult.screen_size[0]}x
+                        {diagnosticResult.screen_size[1]}
+                      </Text>
+                    )}
+                    {diagnosticResult.page_type && (
+                      <Text type="secondary" className="text-xs">
+                        页面: {diagnosticResult.page_type}
+                      </Text>
+                    )}
+                  </>
+                )}
+                {diagnosticResult.issues.length > 0 && (
+                  <div style={{ color: "#ff4d4f", marginTop: 4 }}>
+                    {diagnosticResult.issues.map((issue, i) => (
+                      <div key={i}>⚠ {issue}</div>
+                    ))}
+                  </div>
+                )}
+              </Flex>
+            </div>
+          )}
           {uiAutomatorResult && (
             <div
               style={{
@@ -159,7 +250,7 @@ export function SettingsPanel({
             align="center"
             className="settings-divider"
           >
-            <Text type="secondary">版本 1.0.19</Text>
+            <Text type="secondary">版本 1.0.20</Text>
             {updater.available ? (
               <Button
                 size="small"

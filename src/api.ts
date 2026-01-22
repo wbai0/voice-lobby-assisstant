@@ -303,6 +303,19 @@ export const autoMessageApi = {
 };
 
 // UI Automator API
+export interface DiagnosticResult {
+  adb_connected: boolean;
+  device_id: string | null;
+  screen_size: [number, number] | null;
+  orientation: number | null;
+  orientation_ok: boolean;
+  animator_scale: string | null;
+  ui_dump_ok: boolean;
+  ui_dump_error: string | null;
+  page_type: string | null;
+  issues: string[];
+}
+
 export const uiAutomatorApi = {
   test: async (): Promise<{ data: string }> => {
     if (isTauri()) {
@@ -320,6 +333,27 @@ export const uiAutomatorApi = {
       return { data: { success: true, message } };
     }
     return { data: { success: false, message: "Not in Tauri" } };
+  },
+
+  runDiagnostics: async (): Promise<{ data: DiagnosticResult }> => {
+    if (isTauri()) {
+      const data = await invoke<DiagnosticResult>("cmd_run_diagnostics");
+      return { data };
+    }
+    return {
+      data: {
+        adb_connected: false,
+        device_id: null,
+        screen_size: null,
+        orientation: null,
+        orientation_ok: false,
+        animator_scale: null,
+        ui_dump_ok: false,
+        ui_dump_error: "Not in Tauri",
+        page_type: null,
+        issues: ["Not in Tauri"],
+      },
+    };
   },
 };
 

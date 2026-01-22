@@ -734,22 +734,36 @@ pub fn cmd_tap_at(x: i32, y: i32, state: State<'_, AppState>) -> Result<String, 
 }
 
 /// Navigate to "我的" tab and then tap "新星用户榜"
-/// Flow: openHome (reset state) -> tap 我的 -> tap 新星用户榜
+/// Flow: openMessageList -> UIAutomator find 我的 -> UIAutomator find 新星用户榜
 pub fn navigate_to_nova_list(device: &str, screen_width: i32, screen_height: i32) -> Result<()> {
-    // Step 1: Go to home page first to reset scroll state
-    open_route(device, "openHome")?;
+    use crate::ui_automator;
     
-    // Step 2: Wait for page to load (1.5 seconds)
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    // Step 1: Open message list to get to a known state
+    open_route(device, "openMessageList")?;
+    std::thread::sleep(std::time::Duration::from_secs(3));
     
-    // Step 3: Tap "我的" tab
-    tap_me_tab(device, screen_width, screen_height)?;
+    // Step 2: Find and click "我的" tab using UIAutomator
+    match ui_automator::find_me_tab(device) {
+        Ok(Some((x, y))) => { tap(device, x, y)?; }
+        _ => {
+            // Fallback to fixed coordinates
+            let x = screen_width * 7 / 8;
+            let y = screen_height * 97 / 100;
+            tap(device, x, y)?;
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_secs(2));
     
-    // Step 4: Wait for page to load (1 second)
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-    
-    // Step 5: Tap "新星用户榜"
-    tap_nova_user_list(device, screen_width, screen_height)?;
+    // Step 3: Find and click "新星用户榜" using UIAutomator
+    match ui_automator::find_nova_user_list(device) {
+        Ok(Some((x, y))) => { tap(device, x, y)?; }
+        _ => {
+            // Fallback to fixed coordinates
+            let x = screen_width / 2;
+            let y = screen_height * 78 / 100;
+            tap(device, x, y)?;
+        }
+    }
     
     Ok(())
 }
@@ -767,4 +781,122 @@ pub fn cmd_navigate_to_nova_list(state: State<'_, AppState>) -> Result<String, S
     navigate_to_nova_list(&device, screen_size.0, screen_size.1).map_err(|e| e.to_string())?;
     state.add_log("已导航到「新星用户榜」");
     Ok("已导航到「新星用户榜」".to_string())
+}
+
+#[derive(Serialize)]
+pub struct DiagnosticResult {
+    pub adb_connected: bool,
+    pub device_id: Option<String>,
+    pub screen_size: Option<(i32, i32)>,
+    pub orientation: Option<i32>,
+    pub orientation_ok: bool,
+    pub animator_scale: Option<String>,
+    pub ui_dump_ok: bool,
+    pub ui_dump_error: Option<String>,
+    pub page_type: Option<String>,
+    pub issues: Vec<String>,
+}
+
+#[tauri::command]
+pub fn cmd_run_diagnostics(state: State<'_, AppState>) -> DiagnosticResult {
+    let mut issues = Vec::new();
+    
+    // 1. Check ADB connection
+    let device = state.connected_device.lock().unwrap().clone();
+    let adb_connected = device.is_some();
+    if !adb_connected {
+        issues.push("未连接 ADB 设备".to_string());
+    }
+    
+    let device_id = device.clone();
+    let screen_size = *state.screen_size.lock().unwrap();
+    
+    if screen_size.is_none() {
+        issues.push("未获取屏幕尺寸".to_string());
+    }
+    
+    // Early return if no device
+    let Some(ref dev) = device else {
+        return DiagnosticResult {
+            adb_connected,
+            device_id,
+            screen_size,
+            orientation: None,
+            orientation_ok: false,
+            animator_scale: None,
+            ui_dump_ok: false,
+            ui_dump_error: Some("未连接设备".to_string()),
+            page_type: None,
+            issues,
+        };
+    };
+    
+    // 2. Check orientation
+    let orientation = get_orientation(dev);
+    let orientation_ok = orientation == Some(0);
+    if !orientation_ok {
+        issues.push(format!("屏幕方向不正确 (当前: {:?}, 需要: 0/竖屏)", orientation));
+    }
+    
+    // 3. Check animator scale (only warn if UI dump failed)
+    let animator_scale = get_animator_scale(dev);
+    
+    // 4. Try UI dump
+    let (ui_dump_ok, ui_dump_error) = match crate::ui_automator::dump_ui_hierarchy(dev) {
+        Ok(_) => (true, None),
+        Err(e) => {
+            issues.push(format!("UI Dump 失败: {}", e));
+            // Only warn about animator scale if dump failed
+            if animator_scale.as_deref() != Some("0.0") && animator_scale.as_deref() != Some("0") {
+                issues.push(format!("动画缩放未关闭 (当前: {:?})，可能导致 UI Dump 失败", animator_scale));
+            }
+            (false, Some(e))
+        }
+    };
+    
+    // 5. Detect page type
+    let page_type = if ui_dump_ok {
+        Some(format!("{:?}", detect_page(dev)))
+    } else {
+        None
+    };
+    
+    DiagnosticResult {
+        adb_connected,
+        device_id,
+        screen_size,
+        orientation,
+        orientation_ok,
+        animator_scale,
+        ui_dump_ok,
+        ui_dump_error,
+        page_type,
+        issues,
+    }
+}
+
+fn get_orientation(device: &str) -> Option<i32> {
+    let adb = get_adb_path();
+    let output = create_command(&adb)
+        .args(["-s", device, "shell", "dumpsys", "input"])
+        .output()
+        .ok()?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if line.contains("SurfaceOrientation:") {
+            return line.split(':').nth(1)?.trim().parse().ok();
+        }
+    }
+    None
+}
+
+fn get_animator_scale(device: &str) -> Option<String> {
+    let adb = get_adb_path();
+    let output = create_command(&adb)
+        .args(["-s", device, "shell", "settings", "get", "global", "animator_duration_scale"])
+        .output()
+        .ok()?;
+    
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
