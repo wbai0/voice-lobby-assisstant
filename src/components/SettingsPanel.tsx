@@ -159,7 +159,7 @@ export function SettingsPanel({
             align="center"
             className="settings-divider"
           >
-            <Text type="secondary">版本 1.0.18</Text>
+            <Text type="secondary">版本 1.0.19</Text>
             {updater.available ? (
               <Button
                 size="small"
