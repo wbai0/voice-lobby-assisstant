@@ -72,7 +72,6 @@ export function Sidebar({
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomId, setNewRoomId] = useState("");
   const [newRoomName, setNewRoomName] = useState("");
-  const [isResizing, setIsResizing] = useState(false);
 
   // Load from localStorage
   useEffect(() => {
@@ -204,7 +203,6 @@ export function Sidebar({
           className="sidebar-resize-handle"
           onMouseDown={(e) => {
             e.preventDefault();
-            setIsResizing(true);
             const startX = e.clientX;
             const startWidth = width;
             const onMouseMove = (e: MouseEvent) => {
@@ -215,7 +213,6 @@ export function Sidebar({
               onWidthChange?.(newWidth);
             };
             const onMouseUp = () => {
-              setIsResizing(false);
               document.removeEventListener("mousemove", onMouseMove);
               document.removeEventListener("mouseup", onMouseUp);
             };
